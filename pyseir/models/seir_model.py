@@ -8,6 +8,7 @@ class SEIRModel:
 
     def __init__(self,
                  N,
+                 t_list,
                  suppression_policy,
                  I_initial=1,
                  R_initial=0,
@@ -16,7 +17,6 @@ class SEIRModel:
                  HICU_initial=0,
                  HICUVent_initial=0,
                  D_initial=0,
-                 n_days=720,
                  R0=2.4,
                  alpha=1 / 4.58,
                  gamma=1 / 2.09,
@@ -30,7 +30,7 @@ class SEIRModel:
                  hospitalization_length_of_stay_icu_and_ventilator=12,
                  fraction_icu_requiring_ventilator=0.53,
                  beds_general=30,
-                 beds_ICU=10,
+                 beds_ICU=15,
                  ventilators=10):
         """
         This class implements a SEIR-like compartmental epidemic model
@@ -43,15 +43,20 @@ class SEIRModel:
         Model Refs:
          - https://arxiv.org/pdf/2002.06563.pdf
 
+        Need more details on hospitalization parameters...
 
-        Need more details on hospitalization parameters..
+        Imperial college has more pessimistic numbers.
         1. https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
+
+        UW tends to have more optimistic numbers
         2. http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
 
         Parameters
         ----------
         N: int
             Total population
+        t_list: array-like
+            Array of timesteps. Usually these are spaced daily.
         suppression_policy: callable
             Suppression_policy(t) should return a scalar in [0, 1] which
             represents the contact rate reduction from social distancing.
@@ -122,8 +127,6 @@ class SEIRModel:
                          - self.D_initial - self.HGen_initial - self.HICU_initial \
                          - self.HICUVent_initial
 
-        self.n_days = n_days
-
         # Epidemiological Parameters
         self.R0 = R0        # Reproduction Number
         self.alpha = alpha  # Latent Period = 1 / incubation
@@ -154,7 +157,7 @@ class SEIRModel:
         self.ventilators = ventilators
 
         # List of times to integrate.
-        self.t_list = np.linspace(0, self.n_days, self.n_days)
+        self.t_list = t_list
         self.results = None
 
     def _time_step(self, y, t):
@@ -182,7 +185,7 @@ class SEIRModel:
         #    this
 
         dSdt = - self.beta * self.suppression_policy(t) * S * (I + 10) / self.N  # Fraction Susceptible. 0.1 here is to simulate other infected coming into the community.
-        dEdt = self.beta * self.suppression_policy(t) * S * (I + 10) / N - self.alpha * E  # Fraction exposed
+        dEdt = self.beta * self.suppression_policy(t) * S * (I + 10) / self.N - self.alpha * E  # Fraction exposed
         dIdt = self.alpha * E - self.gamma * I  # Fraction that are Infected
 
         # Fraction that recover
@@ -194,7 +197,9 @@ class SEIRModel:
                + HICU / self.hospitalization_length_of_stay_icu
 
         dHNonICU_dt = I * self.hospitalization_rate_general - HNonICU / self.hospitalization_length_of_stay_general
-        dHICU_dt = I * self.hospitalization_rate_icu - HICU / self.hospitalization_length_of_stay_icu - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
+        dHICU_dt = I * self.hospitalization_rate_icu \
+                   - HICU * (1 - self.fraction_icu_requiring_ventilator) / self.hospitalization_length_of_stay_icu \
+                   - HICUVent * self.fraction_icu_requiring_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
         dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
 
         # TODO Modify this based on increased mortality if beds saturated
@@ -223,10 +228,11 @@ class SEIRModel:
         }
         """
         # Initial conditions vector
-        y0 = self.S_initial, self.R_initial, self.I_initial, self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
+        y0 = self.S_initial, self.E_initial, self.R_initial, self.I_initial, \
+             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
 
         # Integrate the SIR equations over the time grid, t.
-        result_time_series = odeint(self._time_step, y0, t_list)
+        result_time_series = odeint(self._time_step, y0, self.t_list)
         S, E, I, R, HNonICU, HICU, HICUVent, D = result_time_series.T
 
         self.results = {
@@ -240,74 +246,46 @@ class SEIRModel:
             'HICUVent': HICUVent,
             'D': D
         }
-        return self.results
 
     def plot_results(self):
         """
-
-        Returns
-        -------
-
+        Generate a summary plot for the simulation.
         """
         # Plot the data on three separate curves for S(t), I(t) and R(t)
-        plt.figure(facecolor='w', figsize=(16, 8))
+        plt.figure(facecolor='w', figsize=(16, 16))
         plt.subplot(221)
         plt.plot(self.t_list, self.results['S'], alpha=1, lw=2, label='Susceptible')
-        plt.plot(self.t_list, self.results['E'], alpha=.25, lw=2, label='Exposed')
-        plt.plot(self.t_list, self.results['I'], alpha=.25, lw=2, label='Infected')
+        plt.plot(self.t_list, self.results['E'], alpha=.5, lw=2, label='Exposed')
+        plt.plot(self.t_list, self.results['I'], alpha=.5, lw=2, label='Infected')
         plt.plot(self.t_list, self.results['R'], alpha=1, lw=2, label='Recovered & Immune', linestyle='--')
-
-        plt.xlabel('Time [days]')
-        plt.ylabel('Number')
+        plt.plot(self.t_list, self.results['D'], alpha=1, c='k', lw=4, label='Dead', linestyle='-')
+        plt.xlabel('Time [days]', fontsize=12)
         plt.yscale('log')
         plt.ylim(1, self.N * 1.1)
         plt.grid(True, which='both', alpha=.35)
-        plt.legend(framealpha=1)
+        plt.legend(framealpha=.5)
         plt.xlim(0, self.t_list.max())
 
         plt.subplot(222)
-        plt.plot(self.t_list, self.results['HNonICU'], alpha=1, lw=2, label='General Beds Required', linestyle='--')
-        plt.plot(self.t_list, self.results['HICU'], alpha=1, lw=3, label='ICU Beds Required', linestyle='--')
-        plt.plot(self.t_list, self.results['HICUVent'], alpha=1, lw=3, label='Ventilators Required', linestyle='--')
-        plt.plot(self.t_list, self.results['D'], alpha=1, c='k', lw=4, label='Dead', linestyle='-')
-        plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'r', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='-')
-        plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'b', alpha=1, lw=2, label='General Bed Capacity', linestyle='-')
-        plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'k', alpha=1, lw=2, label='Ventilator Capacity', linestyle='-')
+        plt.plot(self.t_list, self.results['HNonICU'], alpha=1, lw=2, c='steelblue', label='General Beds Required', linestyle='-')
+        plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'steelblue', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='--')
 
-        plt.xlabel('Time [days]')
-        plt.ylabel('Number')
+        plt.plot(self.t_list, self.results['HICU'], alpha=1, lw=2, c='firebrick', label='ICU Beds Required', linestyle='-')
+        plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'firebrick', alpha=1, lw=2, label='General Bed Capacity', linestyle='--')
+
+        plt.plot(self.t_list, self.results['HICUVent'], alpha=1, lw=2, c='seagreen', label='Ventilators Required', linestyle='-')
+        plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'seagreen', alpha=1, lw=2, label='Ventilator Capacity', linestyle='--')
+
+        plt.xlabel('Time [days]', fontsize=12)
+        plt.ylabel('')
         plt.yscale('log')
         plt.ylim(1, self.N * 1.1)
         plt.grid(True, which='both', alpha=.35)
-        plt.legend(framealpha=1)
+        plt.legend(framealpha=.5)
         plt.xlim(0, self.t_list.max())
 
-        
-
-
-if __name__ == '__main__':
-
-    def generate_supression_model_rho(t_list, lockdown_days, open_days):
-        # Contact rate drop under lockdown
-        # TODO: Determine efficacy of different social interventions
-        state = 'lockdown'
-        state_switch = lockdown_days
-        rho = []
-
-        for t in t_list:
-            if t >= state_switch:
-                if state == 'open':
-                    state = 'lockdown'
-                    state_switch += lockdown_days
-                elif state == 'lockdown':
-                    state = 'open'
-                    state_switch += open_days
-            if state == 'open':
-                rho.append(1)
-            elif state == 'lockdown':
-                rho.append(0.25)
-
-        return interp1d(t_list, rho, fill_value='extrapolate')
-
-    rho = generate_supression_model_rho(t_list, lockdown_days=90, open_days=10)
-    plt.plot(t_list, rho(t_list))
+        # Reproduction numbers
+        plt.subplot(223)
+        plt.plot(self.t_list, self.suppression_policy(self.t_list), c='steelblue')
+        plt.ylabel('Contact Rate Reduction')
+        plt.xlabel('Time [days]', fontsize=12)
