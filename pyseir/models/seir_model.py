@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.integrate import odeint
 import matplotlib.pyplot as plt
-from scipy.interpolate import interp1d
 
 
 class SEIRModel:
@@ -151,7 +150,7 @@ class SEIRModel:
         # These need to be made age dependent
         self.beta = self.R0 * self.sigma  # R0 = beta / sigma = Contact rate * incubation period
         self.mortality_rate = mortality_rate
-        self.symptoms_to_hospital_delay = symptoms_to_hospital_days
+        self.symptoms_to_hospital_days = symptoms_to_hospital_days
         self.symptoms_to_mortality_days = symptoms_to_mortality_days
 
         # Hospitalization Parameters
@@ -214,18 +213,17 @@ class SEIRModel:
         dRdt = (self.k_A * A  # Asymptomatic cases flowing in
                 + self.sigma * I # Symptomatic cases flowing in, but not the hospitalized ones.
                - I * (  self.mortality_rate / self.symptoms_to_mortality_days
-                      + self.hospitalization_rate_icu / self.symptoms_to_hospital_delay
-                      + self.hospitalization_rate_general / self.symptoms_to_hospital_delay)
+                      + self.hospitalization_rate_icu / self.symptoms_to_hospital_days
+                      + self.hospitalization_rate_general / self.symptoms_to_hospital_days)
                + HNonICU / self.hospitalization_length_of_stay_general
                + HICU / self.hospitalization_length_of_stay_icu )
 
-
-        dHNonICU_dt = (I * self.hospitalization_rate_general / self.symptoms_to_hospital_delay
+        dHNonICU_dt = (I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
                        - HNonICU / self.hospitalization_length_of_stay_general)  # Outflow from recovery
-        dHICU_dt = I * self.hospitalization_rate_icu * (1 - self.fraction_icu_requiring_ventilator) / self.symptoms_to_hospital_delay \
-                   - HICU / self.hospitalization_length_of_stay_icu
+        dHICU_dt = I * self.hospitalization_rate_icu * (1 - self.fraction_icu_requiring_ventilator) / self.symptoms_to_hospital_days \
+                   - HICU / self.hospitalization_length_of_stay_icu # Outflow from ICU recovery
 
-        dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator / self.symptoms_to_hospital_delay \
+        dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator / self.symptoms_to_hospital_days \
                        - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
 
         # TODO Modify this based on increased mortality if beds saturated
