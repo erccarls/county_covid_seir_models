@@ -10,3 +10,11 @@ Execute
 
 Activate the environment here..
 `conda activate pyseir`
+
+## Installing pyseir
+Change to into the county_covid_seir_models directory
+`pip install -e .`
+
+
+## Download Data Locally
+`pyseir download-data`

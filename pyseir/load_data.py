@@ -1,0 +1,89 @@
+import os
+import pandas as pd
+import numpy as np
+
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
+
+
+def cache_county_case_data():
+    """
+    Cache county covid case data in #PYSEIR_HOME/data.
+    """
+    print('Downloading covid case data')
+    county_fips_map = pd.read_csv(os.path.join(DATA_DIR, 'county_state_fips.csv'), dtype='str', low_memory=False)
+    case_data = pd.read_csv('https://coronadatascraper.com/timeseries-tidy.csv', low_memory=False)
+
+    fips_merged = case_data.merge(county_fips_map, left_on=('county', 'state'), right_on=('COUNTYNAME', 'STATE'))\
+              [['STCOUNTYFP', 'county', 'state', 'population', 'lat', 'long', 'date', 'type', 'value']]
+
+    fips_merged.columns = [col.lower() for col in fips_merged.columns]
+    fips_merged.to_pickle(os.path.join(DATA_DIR, 'covid_case_timeseries.pkl'))
+
+
+def cache_county_metadata():
+    """
+    Cache 2019 census data including age distribution by state/county FIPS.
+
+    # TODO Add pop density
+    """
+    print('Downloading county level population data')
+    county_summary = pd.read_csv(
+        'https://www2.census.gov/programs-surveys/popest/datasets/2010-2018/counties/asrh/cc-est2018-alldata.csv',
+        sep=',', encoding="ISO-8859-1", dtype='str', low_memory=False)
+
+    df = county_summary[county_summary.YEAR == '11'][['STATE', 'COUNTY', 'CTYNAME', 'AGEGRP', 'TOT_POP']]
+    df[['AGEGRP', 'TOT_POP']] = df[['AGEGRP', 'TOT_POP']].astype(int)
+    list_agg = df.sort_values(['STATE', 'COUNTY', 'CTYNAME', 'AGEGRP']) \
+        .groupby(['STATE', 'COUNTY', 'CTYNAME'])['TOT_POP'] \
+        .apply(np.array) \
+        .reset_index()
+    list_agg['TOTAL'] = list_agg['TOT_POP'].apply(lambda x: x[0])
+    list_agg['AGE_DISTRIBUTION'] = list_agg['TOT_POP'].apply(lambda x: x[1:])
+    list_agg.drop('TOT_POP', axis=1)
+
+    age_bins = list(range(0, 86, 5))
+    age_bins += [120]
+    list_agg['AGE_BIN_EDGES'] = [np.array(age_bins) for _ in
+                                 range(len(list_agg))]
+
+    list_agg.insert(0, 'stcountyfp', list_agg['STATE'] + list_agg['COUNTY'])
+    list_agg = list_agg.drop(['STATE', 'COUNTY', 'TOT_POP'], axis=1)
+    list_agg.columns = [col.lower() for col in list_agg.columns]
+    list_agg = list_agg.rename(
+        mapper={'ctyname': 'county_name', 'total': 'total_population'}, axis=1)
+    list_agg.to_pickle(os.path.join(DATA_DIR, 'covid_county_metadata.pkl'))
+
+
+def load_county_case_data():
+    """
+    Return county level case data. The following columns:
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'covid_case_timeseries.pkl'))
+
+
+def load_county_metadata():
+    """
+    Return county level metadata such as age distributions, populations etc..
+
+    Returns
+    -------
+    : pd.DataFrame
+
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'covid_county_metadata.pkl'))
+
+
+def cache_all_data():
+    """
+    Download all datasets locally.
+    """
+    cache_county_case_data()
+    cache_county_metadata()
+
+
+if __name__ == '__main__':
+    cache_all_data()
