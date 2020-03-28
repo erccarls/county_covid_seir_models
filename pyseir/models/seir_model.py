@@ -14,6 +14,7 @@ class SEIRModel:
                  E_initial=0,
                  HGen_initial=0,
                  HICU_initial=0,
+                 HICUVent_initial=0,
                  D_initial=0,
                  n_days=720,
                  R0=2.4,
@@ -64,6 +65,8 @@ class SEIRModel:
             Initial number of General hospital admissions.
         HICU_initial: int
             Initial number of ICU cases.
+        HICUVent_initial: int
+            Initial number of ICU cases.
         D_initial: int
             Initial number of deaths
         n_days: int
@@ -109,9 +112,16 @@ class SEIRModel:
         self.I_initial = I_initial
         self.R_initial = R_initial
         self.E_initial = E_initial
-        self.S_initial = self.N - self.I_initial - self.R_initial - self.E_initial
+        self.D_initial = D_initial
+
         self.HGen_initial = HGen_initial
         self.HICU_initial = HICU_initial
+        self.HICUVent_initial = HICUVent_initial
+
+        self.S_initial = self.N - self.I_initial - self.R_initial - self.E_initial \
+                         - self.D_initial - self.HGen_initial - self.HICU_initial \
+                         - self.HICUVent_initial
+
         self.n_days = n_days
 
         # Epidemiological Parameters
@@ -134,6 +144,10 @@ class SEIRModel:
         self.hospitalization_length_of_stay_icu = hospitalization_length_of_stay_icu
         self.hospitalization_length_of_stay_icu_and_ventilator = hospitalization_length_of_stay_icu_and_ventilator
 
+        # http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
+        # = 0.53
+        self.fraction_icu_requiring_ventilator = fraction_icu_requiring_ventilator
+
         # Capacity
         self.beds_general = beds_general
         self.beds_ICU = beds_ICU
@@ -141,11 +155,13 @@ class SEIRModel:
 
         # List of times to integrate.
         self.t_list = np.linspace(0, self.n_days, self.n_days)
+        self.results = None
 
     def _time_step(self, y, t):
         """
+        One integral moment.
         """
-        S, E, I, R, HNonICU, HICU, D = y
+        S, E, I, R, HNonICU, HICU, HICUVent, D = y
 
         # TODO: County-by-county affinity matrix terms can be used to describe
         # transmission network effects.
@@ -177,107 +193,121 @@ class SEIRModel:
                + HNonICU / self.hospitalization_length_of_stay_general \
                + HICU / self.hospitalization_length_of_stay_icu
 
-        dHNonICU_dt = I * self.hospitalization_rate_general - HNonICU / self.hospitalization_length_of_stay_non_icu
-        dHICU_dt = I * self.hospitalization_rate_icu - HICU / self.hospitalization_length_of_stay_icu
+        dHNonICU_dt = I * self.hospitalization_rate_general - HNonICU / self.hospitalization_length_of_stay_general
+        dHICU_dt = I * self.hospitalization_rate_icu - HICU / self.hospitalization_length_of_stay_icu - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
+        dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
 
         # TODO Modify this based on increased mortality if beds saturated
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
         dDdt = self.mortality_rate * I  # Fraction that die.
-        return dSdt, dEdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dDdt
+        return dSdt, dEdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
 
     def run(self):
         """
         Integrate the ODE numerically.
+
+        Returns
+        -------
+        results: dict
+        {
+            't_list': self.t_list,
+            'S': S,
+            'E': E,
+            'I': I,
+            'R': R,
+            'HNonICU': HNonICU,
+            'HICU': HICU,
+            'HICUVent': HICUVent,
+            'D': D
+        }
         """
         # Initial conditions vector
-        self.y0 = self.S_initial, self.R_initial, self.I_initial, self.HGen_initial, self.HICU_initial, self.D_initial
+        y0 = self.S_initial, self.R_initial, self.I_initial, self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
+
+        # Integrate the SIR equations over the time grid, t.
+        result_time_series = odeint(self._time_step, y0, t_list)
+        S, E, I, R, HNonICU, HICU, HICUVent, D = result_time_series.T
+
+        self.results = {
+            't_list': self.t_list,
+            'S': S,
+            'E': E,
+            'I': I,
+            'R': R,
+            'HNonICU': HNonICU,
+            'HICU': HICU,
+            'HICUVent': HICUVent,
+            'D': D
+        }
+        return self.results
+
+    def plot_results(self):
+        """
+
+        Returns
+        -------
+
+        """
+        # Plot the data on three separate curves for S(t), I(t) and R(t)
+        plt.figure(facecolor='w', figsize=(16, 8))
+        plt.subplot(221)
+        plt.plot(self.t_list, self.results['S'], alpha=1, lw=2, label='Susceptible')
+        plt.plot(self.t_list, self.results['E'], alpha=.25, lw=2, label='Exposed')
+        plt.plot(self.t_list, self.results['I'], alpha=.25, lw=2, label='Infected')
+        plt.plot(self.t_list, self.results['R'], alpha=1, lw=2, label='Recovered & Immune', linestyle='--')
+
+        plt.xlabel('Time [days]')
+        plt.ylabel('Number')
+        plt.yscale('log')
+        plt.ylim(1, self.N * 1.1)
+        plt.grid(True, which='both', alpha=.35)
+        plt.legend(framealpha=1)
+        plt.xlim(0, self.t_list.max())
+
+        plt.subplot(222)
+        plt.plot(self.t_list, self.results['HNonICU'], alpha=1, lw=2, label='General Beds Required', linestyle='--')
+        plt.plot(self.t_list, self.results['HICU'], alpha=1, lw=3, label='ICU Beds Required', linestyle='--')
+        plt.plot(self.t_list, self.results['HICUVent'], alpha=1, lw=3, label='Ventilators Required', linestyle='--')
+        plt.plot(self.t_list, self.results['D'], alpha=1, c='k', lw=4, label='Dead', linestyle='-')
+        plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'r', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='-')
+        plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'b', alpha=1, lw=2, label='General Bed Capacity', linestyle='-')
+        plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'k', alpha=1, lw=2, label='Ventilator Capacity', linestyle='-')
+
+        plt.xlabel('Time [days]')
+        plt.ylabel('Number')
+        plt.yscale('log')
+        plt.ylim(1, self.N * 1.1)
+        plt.grid(True, which='both', alpha=.35)
+        plt.legend(framealpha=1)
+        plt.xlim(0, self.t_list.max())
+
+        
 
 
-    # Integrate the SIR equations over the time grid, t.
-    ret = odeint(deriv, y0, t_list)
-    S, E, I, R, HNonICU, HICU, D = ret.T
+if __name__ == '__main__':
 
-    # y = [y0]
-    # for _t in t:
-    #     dSdt, dIdt, dRdt = deriv(y[-1], _t)
-    #     y.append((y[-1][0] + dSdt, y[-1][1] + dIdt, y[-1][2] + dRdt))
-    # y = np.array(y[1:]).T
+    def generate_supression_model_rho(t_list, lockdown_days, open_days):
+        # Contact rate drop under lockdown
+        # TODO: Determine efficacy of different social interventions
+        state = 'lockdown'
+        state_switch = lockdown_days
+        rho = []
 
-    # Plot the data on three separate curves for S(t), I(t) and R(t)
-    plt.figure(facecolor='w', figsize=(8, 8))
-    plt.plot(t_list, S, alpha=1, lw=2, label='Susceptible')
-    plt.plot(t_list, E, alpha=.25, lw=2, label='Exposed')
-    plt.plot(t_list, I, alpha=.25, lw=2, label='Infected')
-    plt.plot(t_list, R, alpha=1, lw=2, label='Recovered & Immune',
-             linestyle='--')
-    plt.plot(t_list, HNonICU, alpha=1, lw=2, label='Hospital (Gen)',
-             linestyle='--')
-    plt.plot(t_list, HICU, alpha=1, lw=3, label='Hospital (ICU)',
-             linestyle='--')
-    plt.plot(t_list, D, alpha=1, c='k', lw=4, label='Dead', linestyle='-')
-    plt.hlines(ICU_capacity, t_list[0], t_list[-1], 'r', alpha=1, lw=2,
-               label='ICU Capacity', linestyle='-')
-    plt.hlines(Non_ICU_capacity, t_list[0], t_list[-1], 'b', alpha=1, lw=2,
-               label='Non ICU Capacity', linestyle='-')
-    plt.hlines(ventilator_capacity, t_list[0], t_list[-1], 'k', alpha=1, lw=2,
-               label='Ventilator Capacity', linestyle='-')
-
-    plt.xlabel('Time [days]')
-    plt.ylabel('Number')
-    plt.yscale('log')
-    plt.ylim(1, 1100)
-    plt.grid(True, which='both', alpha=.35)
-    plt.legend(framealpha=1)
-    plt.xlim(0, 360)
-
-
-
-
-
-
-# https://www.thelancet.com/action/showPdf?pii=S2214-109X%2820%2930074-7
-
-# Total population, N.
-N = 1000
-
-# Initial number of infected and recovered individuals, I0 and R0.
-I_initial, R_initial = 1, 0
-
-# Everyone else, S0, is susceptible to infection initially.
-S_initial = N - I_initial - R_initial
-
-# A grid of time points (in days)
-t_list = np.linspace(0, 365, 365)
-
-
-def generate_supression_model_rho(t_list, lockdown_days, open_days):
-    # Contact rate drop under lockdown
-    # TODO: Determine efficacy of different social interventions
-    state = 'lockdown'
-    state_switch = lockdown_days
-    rho = []
-
-    for t in t_list:
-        if t >= state_switch:
+        for t in t_list:
+            if t >= state_switch:
+                if state == 'open':
+                    state = 'lockdown'
+                    state_switch += lockdown_days
+                elif state == 'lockdown':
+                    state = 'open'
+                    state_switch += open_days
             if state == 'open':
-                state = 'lockdown'
-                state_switch += lockdown_days
+                rho.append(1)
             elif state == 'lockdown':
-                state = 'open'
-                state_switch += open_days
-        if state == 'open':
-            rho.append(1)
-        elif state == 'lockdown':
-            rho.append(0.25)
+                rho.append(0.25)
 
-    return interp1d(t_list, rho, fill_value='extrapolate')
+        return interp1d(t_list, rho, fill_value='extrapolate')
 
-
-rho = generate_supression_model_rho(t_list, lockdown_days=90, open_days=10)
-
-plt.plot(t_list, rho(t_list))
-
-# Modified from https://arxiv.org/pdf/2002.06563.pdf
-# Updated where applicable with https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
-
+    rho = generate_supression_model_rho(t_list, lockdown_days=90, open_days=10)
+    plt.plot(t_list, rho(t_list))
