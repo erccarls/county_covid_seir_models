@@ -10,7 +10,8 @@ class SEIRModel:
                  N,
                  t_list,
                  suppression_policy,
-                 I_initial=1,
+                 A_initial=50,
+                 I_initial=50,
                  R_initial=0,
                  E_initial=0,
                  HGen_initial=0,
@@ -18,11 +19,12 @@ class SEIRModel:
                  HICUVent_initial=0,
                  D_initial=0,
                  R0=2.4,
-                 alpha=1 / 4.58,
-                 gamma=1 / 2.09,
+                 sigma=1 / 5.,
+                 gamma=0.5,
+                 k_A= 1 / 14.,
                  hospitalization_rate_general=0.11,
                  hospitalization_rate_icu=0.04,
-                 mortality_rate=0.005,
+                 mortality_rate=0.0052,
                  symptoms_to_hospital_days=5,
                  symptoms_to_mortality_days=13,
                  hospitalization_length_of_stay_general=8,
@@ -41,6 +43,7 @@ class SEIRModel:
         not perform monte carlo for individual cases.
 
         Model Refs:
+         - https://arxiv.org/pdf/2003.10047.pdf  # We mostly follow this notation.
          - https://arxiv.org/pdf/2002.06563.pdf
 
         Need more details on hospitalization parameters...
@@ -60,11 +63,13 @@ class SEIRModel:
         suppression_policy: callable
             Suppression_policy(t) should return a scalar in [0, 1] which
             represents the contact rate reduction from social distancing.
-        I_initial:
+        A_initial: int
+            Initial asymptomatic
+        I_initial: int
             Initial infections.
-        R_initial:
+        R_initial: int
             Initial recovered.
-        E_initial:
+        E_initial: int
             Initial exposed
         HGen_initial: int
             Initial number of General hospital admissions.
@@ -78,10 +83,15 @@ class SEIRModel:
             Number of days to simulate.
         R0: float
             Basic Reproduction number
-        alpha: float
+        sigma: float
             Latent decay scale is defined as 1 / incubation period.
+            1 / 4.8: https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
+            1 / 5.2 [3, 8]: https://arxiv.org/pdf/2003.10047.pdf
         gamma: float
-            Infection decay scale.
+            Clinical outbreak rate (fraction of infected that show symptoms)
+        k_A: float
+            Inverse Asymptomatic infections period
+            1/14: https://arxiv.org/pdf/2003.10047.pdf
         hospitalization_rate_general: float
             Fraction of infected that are hospitalized generally (not in ICU)
             TODO: Make this age dependent
@@ -94,6 +104,7 @@ class SEIRModel:
             Of the ICU cases, which require ventilators.
         mortality_rate: float
             Fraction of infected that die.
+            0.0052: https://arxiv.org/abs/2003.10720
             TODO: Make this age dependent
         beds_general: int
             General (non-ICU) hospital beds available.
@@ -106,6 +117,8 @@ class SEIRModel:
             hospital admission.
         symptoms_to_mortality_days: float
             Mean number of days for an infected individual to die.
+            Hospitalization to death Needs to be added to time to
+                15.16 [0, 42] - https://arxiv.org/pdf/2003.10047.pdf
         hospitalization_length_of_stay_general: float
             Mean number of days for a hospitalized individual to be discharged.
         hospitalization_length_of_stay_icu
@@ -115,6 +128,7 @@ class SEIRModel:
         self.N = N
         self.suppression_policy = suppression_policy
         self.I_initial = I_initial
+        self.A_initial = A_initial
         self.R_initial = R_initial
         self.E_initial = E_initial
         self.D_initial = D_initial
@@ -123,20 +137,22 @@ class SEIRModel:
         self.HICU_initial = HICU_initial
         self.HICUVent_initial = HICUVent_initial
 
-        self.S_initial = self.N - self.I_initial - self.R_initial - self.E_initial \
+        self.S_initial = self.N - self.A_initial - self.I_initial - self.R_initial - self.E_initial \
                          - self.D_initial - self.HGen_initial - self.HICU_initial \
                          - self.HICUVent_initial
 
         # Epidemiological Parameters
         self.R0 = R0        # Reproduction Number
-        self.alpha = alpha  # Latent Period = 1 / incubation
-        self.gamma = gamma  # Infection decay scale = 1 / t_infectious
+        self.sigma = sigma  # Latent Period = 1 / incubation
+        self.gamma = gamma  # Clinical outbreak rate
+        # Infection decay scale = 1 / t_infectious
+        self.k_A = k_A # Asymptomatic infectious period
 
         # These need to be made age dependent
-        self.beta = self.R0 * self.gamma  # Contact number
+        self.beta = self.R0 * self.sigma  # R0 = beta / sigma = Contact rate * incubation period
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_delay = symptoms_to_hospital_days
-        self.symptoms_to_mortality = symptoms_to_mortality_days
+        self.symptoms_to_mortality_days = symptoms_to_mortality_days
 
         # Hospitalization Parameters
         # https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
@@ -164,10 +180,11 @@ class SEIRModel:
         """
         One integral moment.
         """
-        S, E, I, R, HNonICU, HICU, HICUVent, D = y
+        S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
 
         # TODO: County-by-county affinity matrix terms can be used to describe
-        # transmission network effects.
+        # transmission network effects. ( also known as Multi-Region SEIR)
+        # https://arxiv.org/pdf/2003.09875.pdf
         #  For those living in county i, the interacting county j exposure is given
         #  by A term dE_i/dt += N_i * Sum_j [ beta_j * mix_ij * I_j * S_i + beta_i *
         #  mix_ji * I_j * S_i ] mix_ij can be proxied by Census-based commuting
@@ -184,29 +201,38 @@ class SEIRModel:
         #    S_i (*) gamma_ij I^j / N - gamma * E_i   # Someone should double check
         #    this
 
-        dSdt = - self.beta * self.suppression_policy(t) * S * (I + 10) / self.N  # Fraction Susceptible. 0.1 here is to simulate other infected coming into the community.
-        dEdt = self.beta * self.suppression_policy(t) * S * (I + 10) / self.N - self.alpha * E  # Fraction exposed
-        dIdt = self.alpha * E - self.gamma * I  # Fraction that are Infected
+        dSdt = - self.beta * self.suppression_policy(t) * S * (I + A) / self.N
+        dEdt = + self.beta * self.suppression_policy(t) * S * (I + A) / self.N \
+               - self.sigma * E  # latent period moving to infection.
+        dAdt = (1 - self.gamma) * self.sigma * E \
+                - self.k_A * A                  # Asymptomatic infections flowing to recovery
+
+        dIdt = (self.gamma * self.sigma * E     # Infections coming from exposures
+                - I * self.sigma)               # infections hospitalizations + mortalities
 
         # Fraction that recover
-        dRdt = self.gamma * I - \
-               I * ( self.mortality_rate
-                    + self.hospitalization_rate_icu
-                    + self.hospitalization_rate_general) \
-               + HNonICU / self.hospitalization_length_of_stay_general \
-               + HICU / self.hospitalization_length_of_stay_icu
+        dRdt = (self.k_A * A  # Asymptomatic cases flowing in
+                + self.sigma * I # Symptomatic cases flowing in, but not the hospitalized ones.
+               - I * (  self.mortality_rate / self.symptoms_to_mortality_days
+                      + self.hospitalization_rate_icu / self.symptoms_to_hospital_delay
+                      + self.hospitalization_rate_general / self.symptoms_to_hospital_delay)
+               + HNonICU / self.hospitalization_length_of_stay_general
+               + HICU / self.hospitalization_length_of_stay_icu )
 
-        dHNonICU_dt = I * self.hospitalization_rate_general - HNonICU / self.hospitalization_length_of_stay_general
-        dHICU_dt = I * self.hospitalization_rate_icu \
-                   - HICU * (1 - self.fraction_icu_requiring_ventilator) / self.hospitalization_length_of_stay_icu \
-                   - HICUVent * self.fraction_icu_requiring_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
-        dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
+
+        dHNonICU_dt = (I * self.hospitalization_rate_general / self.symptoms_to_hospital_delay
+                       - HNonICU / self.hospitalization_length_of_stay_general)  # Outflow from recovery
+        dHICU_dt = I * self.hospitalization_rate_icu * (1 - self.fraction_icu_requiring_ventilator) / self.symptoms_to_hospital_delay \
+                   - HICU / self.hospitalization_length_of_stay_icu
+
+        dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator / self.symptoms_to_hospital_delay \
+                       - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
 
         # TODO Modify this based on increased mortality if beds saturated
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
-        dDdt = self.mortality_rate * I  # Fraction that die.
-        return dSdt, dEdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
+        dDdt = self.mortality_rate * I / self.symptoms_to_mortality_days  # Fraction that die.
+        return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
 
     def run(self):
         """
@@ -228,64 +254,80 @@ class SEIRModel:
         }
         """
         # Initial conditions vector
-        y0 = self.S_initial, self.E_initial, self.R_initial, self.I_initial, \
+        y0 = self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.R_initial,\
              self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
 
         # Integrate the SIR equations over the time grid, t.
         result_time_series = odeint(self._time_step, y0, self.t_list)
-        S, E, I, R, HNonICU, HICU, HICUVent, D = result_time_series.T
+        S, E, A, I, R, HGen, HICU, HICUVent, D = result_time_series.T
 
         self.results = {
             't_list': self.t_list,
             'S': S,
             'E': E,
+            'A': A,
             'I': I,
             'R': R,
-            'HNonICU': HNonICU,
-            'HICU': HICU,
-            'HICUVent': HICUVent,
+            'HGen': HGen,
+            'HICU': HICU + HICUVent,
+            'HVent': HICUVent,
             'D': D
         }
 
-    def plot_results(self):
+    def plot_results(self, y_scale='log'):
         """
         Generate a summary plot for the simulation.
+
+        Parameters
+        ----------
+        y_scale: str
+            Matplotlib scale to use on y-axis. Typically 'log' or 'linear'
         """
         # Plot the data on three separate curves for S(t), I(t) and R(t)
-        plt.figure(facecolor='w', figsize=(16, 16))
-        plt.subplot(221)
+        plt.figure(facecolor='w', figsize=(20, 6))
+        plt.subplot(131)
         plt.plot(self.t_list, self.results['S'], alpha=1, lw=2, label='Susceptible')
         plt.plot(self.t_list, self.results['E'], alpha=.5, lw=2, label='Exposed')
+        plt.plot(self.t_list, self.results['A'], alpha=.5, lw=2, label='Asymptomatic')
         plt.plot(self.t_list, self.results['I'], alpha=.5, lw=2, label='Infected')
         plt.plot(self.t_list, self.results['R'], alpha=1, lw=2, label='Recovered & Immune', linestyle='--')
-        plt.plot(self.t_list, self.results['D'], alpha=1, c='k', lw=4, label='Dead', linestyle='-')
+
+        # This is debugging and should be constant.
+        # TODO: we must be missing a small conservation term above.
+        plt.plot(self.t_list,  self.results['S'] + self.results['E'] + self.results['A']
+                             + self.results['I'] + self.results['R'] + self.results['D']
+                             + self.results['HGen'] + self.results['HICU'], label='Total')
+
         plt.xlabel('Time [days]', fontsize=12)
-        plt.yscale('log')
-        plt.ylim(1, self.N * 1.1)
+        plt.yscale(y_scale)
+        # plt.ylim(1, plt.ylim(1))
         plt.grid(True, which='both', alpha=.35)
         plt.legend(framealpha=.5)
         plt.xlim(0, self.t_list.max())
+        plt.ylim(1, self.N * 1.1)
 
-        plt.subplot(222)
-        plt.plot(self.t_list, self.results['HNonICU'], alpha=1, lw=2, c='steelblue', label='General Beds Required', linestyle='-')
+        plt.subplot(132)
+        plt.plot(self.t_list, self.results['HGen'], alpha=1, lw=2, c='steelblue', label='General Beds Required', linestyle='-')
         plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'steelblue', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='--')
 
         plt.plot(self.t_list, self.results['HICU'], alpha=1, lw=2, c='firebrick', label='ICU Beds Required', linestyle='-')
         plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'firebrick', alpha=1, lw=2, label='General Bed Capacity', linestyle='--')
 
-        plt.plot(self.t_list, self.results['HICUVent'], alpha=1, lw=2, c='seagreen', label='Ventilators Required', linestyle='-')
+        plt.plot(self.t_list, self.results['HVent'], alpha=1, lw=2, c='seagreen', label='Ventilators Required', linestyle='-')
         plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'seagreen', alpha=1, lw=2, label='Ventilator Capacity', linestyle='--')
+
+        plt.plot(self.t_list, self.results['D'], alpha=1, c='k', lw=4, label='Dead', linestyle='-')
 
         plt.xlabel('Time [days]', fontsize=12)
         plt.ylabel('')
-        plt.yscale('log')
-        plt.ylim(1, self.N * 1.1)
+        plt.yscale(y_scale)
+        plt.ylim(1, plt.ylim()[1])
         plt.grid(True, which='both', alpha=.35)
         plt.legend(framealpha=.5)
         plt.xlim(0, self.t_list.max())
 
         # Reproduction numbers
-        plt.subplot(223)
+        plt.subplot(133)
         plt.plot(self.t_list, self.suppression_policy(self.t_list), c='steelblue')
         plt.ylabel('Contact Rate Reduction')
         plt.xlabel('Time [days]', fontsize=12)

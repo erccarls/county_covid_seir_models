@@ -1,3 +1,4 @@
+import numpy as np
 from scipy.interpolate import interp1d
 
 
@@ -24,17 +25,22 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
     state_switch = lockdown_days
     rho = []
 
-    for t in t_list:
-        if t >= state_switch:
+    if lockdown_days == 0:
+        rho = np.ones(len(t_list))
+    elif open_days == 0:
+        rho = np.ones(len(t_list)) * reduction
+    else:
+        for t in t_list:
+            if t >= state_switch:
+                if state == 'open':
+                    state = 'lockdown'
+                    state_switch += lockdown_days
+                elif state == 'lockdown':
+                    state = 'open'
+                    state_switch += open_days
             if state == 'open':
-                state = 'lockdown'
-                state_switch += lockdown_days
+                rho.append(1)
             elif state == 'lockdown':
-                state = 'open'
-                state_switch += open_days
-        if state == 'open':
-            rho.append(1)
-        elif state == 'lockdown':
-            rho.append(reduction)
+                rho.append(reduction)
 
     return interp1d(t_list, rho, fill_value='extrapolate')
