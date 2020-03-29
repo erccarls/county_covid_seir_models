@@ -20,7 +20,7 @@ class SEIRModel:
                  R0=2.4,
                  sigma=1 / 5.2,
                  kappa=1,
-                 delta_A=1 / 14,
+                 delta=1 / 14,
                  gamma=0.5,
                  hospitalization_rate_general=0.11,
                  hospitalization_rate_icu=0.04,
@@ -92,7 +92,7 @@ class SEIRModel:
             Latent decay scale is defined as 1 / incubation period.
             1 / 4.8: https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
             1 / 5.2 [3, 8]: https://arxiv.org/pdf/2003.10047.pdf
-        delta_A: float
+        delta: float
             Inverse infectious period (asymptomatic and symptomatic)
             1/14: https://arxiv.org/pdf/2003.10047.pdf
         gamma: float
@@ -151,7 +151,7 @@ class SEIRModel:
         self.R0 = R0              # Reproduction Number
         self.sigma = sigma        # Latent Period = 1 / incubation
         self.gamma = gamma        # Clinical outbreak rate
-        self.delta_A = delta_A    # Infectious period
+        self.delta = delta    # Infectious period
         self.kappa = kappa        # Discount fraction due to isolation of symptomatic cases.
 
         # These need to be made age dependent
@@ -217,11 +217,11 @@ class SEIRModel:
         exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic but infected) = 1 / incubation
         dEdt = number_exposed - exposed_and_symptomatic - exposed_and_asymptomatic
 
-        asymptomatic_and_recovered = self.delta_A * A
+        asymptomatic_and_recovered = self.delta * A
         dAdt = exposed_and_asymptomatic - asymptomatic_and_recovered
 
         # Fraction that didn't die or go to hospital
-        infected_and_recovered_no_hospital = self.delta_A * I * (1 - self.mortality_rate - self.hospitalization_rate_general - self.hospitalization_rate_icu)
+        infected_and_recovered_no_hospital = self.delta * I
         infected_and_in_hospital_general = I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
         infected_and_in_hospital_icu = I * self.hospitalization_rate_icu / self.symptoms_to_hospital_days
         infected_and_dead = I * self.mortality_rate / self.symptoms_to_mortality_days
