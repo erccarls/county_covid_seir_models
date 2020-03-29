@@ -1,5 +1,9 @@
 # County COVID-19 Compartmental Models
-Tools for forecasting COVID-19 Propagation at the US County Level
+Tools for forecasting COVID-19 Propagation at the US County Level. We implement 
+a generalized comparmental model based on the SEIR formalism.
+
+!(docs/images/model_flow.png)
+
 
 # Installation
 
@@ -17,4 +21,4 @@ Change to into the county_covid_seir_models directory
 
 
 ## Download Data Locally
-`pyseir download-data`
+`pyseir download-data**`
