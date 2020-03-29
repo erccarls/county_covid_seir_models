@@ -101,9 +101,9 @@ def cache_hospital_beds():
     with open(tmp_file) as f:
         vals = json.load(f)
     df = pd.DataFrame([val['properties'] for val in vals['features']])
-    df.rename({'FIPS': 'stcountyfp'}, axis=1)
+    df = df.rename({'FIPS': 'stcountyfp'}, axis=1)
     df.columns = [col.lower() for col in df.columns]
-    df.drop(['objectid', 'state_fips', 'cnty_fips'], axis=1)
+    df = df.drop(['objectid', 'state_fips', 'cnty_fips'], axis=1)
     df.to_pickle(os.path.join(DATA_DIR, 'icu_capacity.pkl'))
 
 

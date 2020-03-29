@@ -221,7 +221,7 @@ class SEIRModel:
         dAdt = exposed_and_asymptomatic - asymptomatic_and_recovered
 
         # Fraction that didn't die or go to hospital
-        infected_and_recovered_no_hospital = self.sigma * I * (1 - self.mortality_rate - self.hospitalization_rate_general - self.hospitalization_rate_icu)
+        infected_and_recovered_no_hospital = self.delta_A * I * (1 - self.mortality_rate - self.hospitalization_rate_general - self.hospitalization_rate_icu)
         infected_and_in_hospital_general = I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
         infected_and_in_hospital_icu = I * self.hospitalization_rate_icu / self.symptoms_to_hospital_days
         infected_and_dead = I * self.mortality_rate / self.symptoms_to_mortality_days
@@ -345,6 +345,6 @@ class SEIRModel:
 
         # Reproduction numbers
         plt.subplot(133)
-        plt.plot(self.t_list, self.suppression_policy(self.t_list), c='steelblue')
+        plt.plot(self.t_list, [self.suppression_policy(t) for t in self.t_list], c='steelblue')
         plt.ylabel('Contact Rate Reduction')
         plt.xlabel('Time [days]', fontsize=12)
