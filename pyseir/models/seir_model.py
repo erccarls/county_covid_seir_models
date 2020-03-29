@@ -283,9 +283,9 @@ class SEIRModel:
             'HICU': HICU,
             'HVent': HVent,
             'D': Deaths from straight mortality. Not including hospital saturation deaths,
-            'expected_death_from_hospital_bed_limits':
-            'expected_death_from_icu_bed_limits':
-            'expected_death_from_ventilator_limits':
+            'deaths_from_hospital_bed_limits':
+            'deaths_from_icu_bed_limits':
+            'deaths_from_ventilator_limits':
             'total_deaths':
         }
         """
@@ -319,9 +319,10 @@ class SEIRModel:
             'deaths_from_icu_bed_limits': np.cumsum((HICU - self.beds_ICU).clip(min=0)) * self.mortality_rate_no_ICU_beds / self.hospitalization_length_of_stay_icu,
             'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
         }
-        self.results['total_deaths'] = self.results['deaths_from_hospital_bed_limits'] \
+        self.results['total_deaths'] =   self.results['deaths_from_hospital_bed_limits'] \
                                        + self.results['deaths_from_icu_bed_limits'] \
-                                       + self.results['deaths_from_ventilator_limits']
+                                       + self.results['deaths_from_ventilator_limits'] \
+                                       + self.results['D']
 
     def plot_results(self, y_scale='log'):
         """
