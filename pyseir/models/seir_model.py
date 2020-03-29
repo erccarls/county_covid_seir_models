@@ -20,7 +20,7 @@ class SEIRModel:
                  R0=2.4,
                  sigma=1 / 5.2,
                  kappa=1,
-                 delta=1 / 14,
+                 delta=1 / 7,
                  gamma=0.5,
                  hospitalization_rate_general=0.11,
                  hospitalization_rate_icu=0.04,
@@ -31,9 +31,12 @@ class SEIRModel:
                  hospitalization_length_of_stay_icu=8,
                  hospitalization_length_of_stay_icu_and_ventilator=12,
                  fraction_icu_requiring_ventilator=0.53,
-                 beds_general=30,
-                 beds_ICU=15,
-                 ventilators=10):
+                 beds_general=300,
+                 beds_ICU=100,
+                 ventilators=60,
+                 mortality_rate_no_ICU_beds=0.85,
+                 mortality_rate_no_ventilator=1.0,
+                 mortality_rate_no_general_beds=0.6):
         """
         This class implements a SEIR-like compartmental epidemic model
         consisting of SEIR states plus death, and hospitalizations.
@@ -130,6 +133,15 @@ class SEIRModel:
         hospitalization_length_of_stay_icu
             Mean number of days for a ICU hospitalized individual to be
             discharged.
+        mortality_rate_no_ICU_beds: float
+            The percentage of those requiring ICU that die if ICU beds are not
+            available.
+        mortality_rate_no_ventilator: float
+            The percentage of those requiring ventilators that die if they are
+            not available.
+        mortality_rate_no_general_beds: float
+            The percentage of those requiring general hospital beds that die if
+            they are not available.
         """
         self.N = N
         self.suppression_policy = suppression_policy
@@ -151,12 +163,11 @@ class SEIRModel:
         self.R0 = R0              # Reproduction Number
         self.sigma = sigma        # Latent Period = 1 / incubation
         self.gamma = gamma        # Clinical outbreak rate
-        self.delta = delta    # Infectious period
+        self.delta = delta        # Infectious period
         self.kappa = kappa        # Discount fraction due to isolation of symptomatic cases.
 
-        # These need to be made age dependent
-        # R0 =  beta = Contact rate * incubation period
-        self.beta = self.R0 * self.sigma
+        # These need to be made age dependent R0 =  beta = Contact rate * infectious period
+        self.beta = self.R0 * self.delta
 
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_days = symptoms_to_hospital_days
@@ -179,6 +190,10 @@ class SEIRModel:
         self.beds_general = beds_general
         self.beds_ICU = beds_ICU
         self.ventilators = ventilators
+
+        self.mortality_rate_no_general_beds = mortality_rate_no_general_beds
+        self.mortality_rate_no_ICU_beds = mortality_rate_no_ICU_beds
+        self.mortality_rate_no_ventilator = mortality_rate_no_ventilator
 
         # List of times to integrate.
         self.t_list = t_list
@@ -266,8 +281,12 @@ class SEIRModel:
             'R': R,
             'HNonICU': HNonICU,
             'HICU': HICU,
-            'HICUVent': HICUVent,
-            'D': D
+            'HVent': HVent,
+            'D': Deaths from straight mortality. Not including hospital saturation deaths,
+            'expected_death_from_hospital_bed_limits':
+            'expected_death_from_icu_bed_limits':
+            'expected_death_from_ventilator_limits':
+            'total_deaths':
         }
         """
         # Initial conditions vector
@@ -275,8 +294,10 @@ class SEIRModel:
              self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
 
         # Integrate the SIR equations over the time grid, t.
-        result_time_series = odeint(self._time_step, y0, self.t_list)
+        result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-2, rtol=1e-2)
         S, E, A, I, R, HGen, HICU, HICUVent, D = result_time_series.T
+
+
 
         self.results = {
             't_list': self.t_list,
@@ -288,8 +309,19 @@ class SEIRModel:
             'HGen': HGen,
             'HICU': HICU,
             'HVent': HICUVent,
-            'D': D
+            'D': D,
+            # Here we assume that the number of person days above the saturation
+            # divided by the mean length of stay approximates the number of
+            # deaths from each source.
+            # Ideally this is included in the dynamics, but this is left as a TODO.
+            'deaths_from_hospital_bed_limits': np.cumsum((HGen - self.beds_general).clip(min=0)) * self.mortality_rate_no_general_beds / self.hospitalization_length_of_stay_general,
+            # Here ICU = ICU + ICUVent, but we want to remove the ventilated fraction and account for that below.
+            'deaths_from_icu_bed_limits': np.cumsum((HICU - self.beds_ICU).clip(min=0)) * self.mortality_rate_no_ICU_beds / self.hospitalization_length_of_stay_icu,
+            'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
         }
+        self.results['total_deaths'] = self.results['deaths_from_hospital_bed_limits'] \
+                                       + self.results['deaths_from_icu_bed_limits'] \
+                                       + self.results['deaths_from_ventilator_limits']
 
     def plot_results(self, y_scale='log'):
         """
@@ -324,16 +356,21 @@ class SEIRModel:
         plt.ylim(1, self.N * 1.1)
 
         plt.subplot(132)
+
+        plt.plot(self.t_list, self.results['D'], alpha=.4, c='k', lw=1, label='Direct Deaths', linestyle='-')
+        plt.plot(self.t_list, self.results['deaths_from_hospital_bed_limits'], alpha=1, c='k', lw=1, label='Deaths From Bed Limits', linestyle=':')
+        plt.plot(self.t_list, self.results['deaths_from_icu_bed_limits'], alpha=1, c='k', lw=2, label='Deaths From ICU Bed Limits', linestyle='-.')
+        plt.plot(self.t_list, self.results['deaths_from_ventilator_limits'], alpha=1, c='k', lw=2, label='Deaths From No Ventillator', linestyle='--')
+        plt.plot(self.t_list, self.results['total_deaths'], alpha=1, c='k', lw=4, label='Total Deaths', linestyle='-')
+
         plt.plot(self.t_list, self.results['HGen'], alpha=1, lw=2, c='steelblue', label='General Beds Required', linestyle='-')
-        plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'steelblue', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='--')
+        plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'steelblue', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='--')
 
         plt.plot(self.t_list, self.results['HICU'], alpha=1, lw=2, c='firebrick', label='ICU Beds Required', linestyle='-')
-        plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'firebrick', alpha=1, lw=2, label='General Bed Capacity', linestyle='--')
+        plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'firebrick', alpha=1, lw=2, label='General Bed Capacity', linestyle='--')
 
         plt.plot(self.t_list, self.results['HVent'], alpha=1, lw=2, c='seagreen', label='Ventilators Required', linestyle='-')
         plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'seagreen', alpha=1, lw=2, label='Ventilator Capacity', linestyle='--')
-
-        plt.plot(self.t_list, self.results['D'], alpha=1, c='k', lw=4, label='Dead', linestyle='-')
 
         plt.xlabel('Time [days]', fontsize=12)
         plt.ylabel('')
@@ -348,3 +385,4 @@ class SEIRModel:
         plt.plot(self.t_list, [self.suppression_policy(t) for t in self.t_list], c='steelblue')
         plt.ylabel('Contact Rate Reduction')
         plt.xlabel('Time [days]', fontsize=12)
+        plt.grid(True, which='both')
