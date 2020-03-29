@@ -214,7 +214,7 @@ class SEIRModel:
         dSdt = - number_exposed
 
         exposed_and_symptomatic = self.gamma * self.sigma * E           # latent period moving to infection = 1 / incubation
-        exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic (but infection) = 1 / incubation
+        exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic but infected) = 1 / incubation
         dEdt = number_exposed - exposed_and_symptomatic - exposed_and_asymptomatic
 
         asymptomatic_and_recovered = self.delta_A * A
@@ -229,7 +229,6 @@ class SEIRModel:
         dIdt = exposed_and_symptomatic - infected_and_recovered_no_hospital - infected_and_in_hospital_general - infected_and_in_hospital_icu - infected_and_dead
 
         recovered_after_hospital_general = HNonICU / self.hospitalization_length_of_stay_general
-
         recovered_after_hospital_icu = HICU * ((1 - self.fraction_icu_requiring_ventilator)/ self.hospitalization_length_of_stay_icu
                                                + self.fraction_icu_requiring_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator)
 
@@ -287,7 +286,7 @@ class SEIRModel:
             'I': I,
             'R': R,
             'HGen': HGen,
-            'HICU': HICU + HICUVent,
+            'HICU': HICU,
             'HVent': HICUVent,
             'D': D
         }
