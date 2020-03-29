@@ -2,7 +2,17 @@
 Tools for forecasting COVID-19 Propagation at the US County Level. We implement 
 a generalized comparmental model based on the SEIR formalism.
 
-!(docs/images/model_flow.png)
+## Dynamical Model Transitions
+![](docs/images/model_flow.png)
+
+## Examples 
+### Flatten the Curve
+
+The top figure represents unsupressed COVID19 flow through the population, while
+the second figure demonstrates the impact of distancing policies.
+
+![](docs/images/no_containment.png)
+![](docs/images/containment.png)
 
 
 # Installation
