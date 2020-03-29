@@ -31,4 +31,6 @@ Change to into the county_covid_seir_models directory
 
 
 ## Download Data Locally
-`pyseir download-data**`
+
+The following will cache data for local use.
+`pyseir download-data`
