@@ -20,11 +20,10 @@ class SEIRModel:
                  R0=2.4,
                  sigma=1 / 5.2,
                  kappa=1,
-                 delta=1 / 7,
+                 delta=1 / 5.2,
                  gamma=0.5,
                  hospitalization_rate_general=0.11,
                  hospitalization_rate_icu=0.04,
-                 mortality_rate=0.0052,
                  symptoms_to_hospital_days=5,
                  symptoms_to_mortality_days=13,
                  hospitalization_length_of_stay_general=8,
@@ -34,6 +33,7 @@ class SEIRModel:
                  beds_general=300,
                  beds_ICU=100,
                  ventilators=60,
+                 mortality_rate=0.0052,
                  mortality_rate_no_ICU_beds=0.85,
                  mortality_rate_no_ventilator=1.0,
                  mortality_rate_no_general_beds=0.6):
@@ -294,7 +294,7 @@ class SEIRModel:
              self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
 
         # Integrate the SIR equations over the time grid, t.
-        result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-2, rtol=1e-2)
+        result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
         S, E, A, I, R, HGen, HICU, HICUVent, D = result_time_series.T
 
 
