@@ -18,9 +18,10 @@ class SEIRModel:
                  HICUVent_initial=0,
                  D_initial=0,
                  R0=2.4,
-                 sigma=1 / 5.,
+                 sigma=1 / 5.2,
+                 kappa=1,
+                 delta_A=1 / 14,
                  gamma=0.5,
-                 k_A= 1 / 14.,
                  hospitalization_rate_general=0.11,
                  hospitalization_rate_icu=0.04,
                  mortality_rate=0.0052,
@@ -82,15 +83,20 @@ class SEIRModel:
             Number of days to simulate.
         R0: float
             Basic Reproduction number
+        kappa: float
+            Fractional contact rate for those with symptoms since they should be
+            isolated vs asymptomatic who are less isolated. A value 1 implies
+            the same rate. A value 0 implies symptomatic people never infect
+            others.
         sigma: float
             Latent decay scale is defined as 1 / incubation period.
             1 / 4.8: https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
             1 / 5.2 [3, 8]: https://arxiv.org/pdf/2003.10047.pdf
+        delta_A: float
+            Inverse infectious period (asymptomatic and symptomatic)
+            1/14: https://arxiv.org/pdf/2003.10047.pdf
         gamma: float
             Clinical outbreak rate (fraction of infected that show symptoms)
-        k_A: float
-            Inverse Asymptomatic infections period
-            1/14: https://arxiv.org/pdf/2003.10047.pdf
         hospitalization_rate_general: float
             Fraction of infected that are hospitalized generally (not in ICU)
             TODO: Make this age dependent
@@ -105,6 +111,7 @@ class SEIRModel:
             Fraction of infected that die.
             0.0052: https://arxiv.org/abs/2003.10720
             TODO: Make this age dependent
+            TODO: This is modeled below as P(mortality | symptoms) which is higher than the overall mortality rate by factor 2.
         beds_general: int
             General (non-ICU) hospital beds available.
         beds_ICU: int
@@ -141,14 +148,16 @@ class SEIRModel:
                          - self.HICUVent_initial
 
         # Epidemiological Parameters
-        self.R0 = R0        # Reproduction Number
-        self.sigma = sigma  # Latent Period = 1 / incubation
-        self.gamma = gamma  # Clinical outbreak rate
-        # Infection decay scale = 1 / t_infectious
-        self.k_A = k_A # Asymptomatic infectious period
+        self.R0 = R0              # Reproduction Number
+        self.sigma = sigma        # Latent Period = 1 / incubation
+        self.gamma = gamma        # Clinical outbreak rate
+        self.delta_A = delta_A    # Infectious period
+        self.kappa = kappa        # Discount fraction due to isolation of symptomatic cases.
 
         # These need to be made age dependent
-        self.beta = self.R0 * self.sigma  # R0 = beta / sigma = Contact rate * incubation period
+        # R0 =  beta = Contact rate * incubation period
+        self.beta = self.R0 * self.sigma
+
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_days = symptoms_to_hospital_days
         self.symptoms_to_mortality_days = symptoms_to_mortality_days
@@ -200,36 +209,47 @@ class SEIRModel:
         #    S_i (*) gamma_ij I^j / N - gamma * E_i   # Someone should double check
         #    this
 
-        dSdt = - self.beta * self.suppression_policy(t) * S * (I + A) / self.N
-        dEdt = + self.beta * self.suppression_policy(t) * S * (I + A) / self.N \
-               - self.sigma * E  # latent period moving to infection.
-        dAdt = (1 - self.gamma) * self.sigma * E \
-                - self.k_A * A                  # Asymptomatic infections flowing to recovery
+        # Effective contact rate * those that get exposed * those susceptible.
+        number_exposed = self.beta * self.suppression_policy(t) * S * (self.kappa * I + A) / self.N
+        dSdt = - number_exposed
 
-        dIdt = (self.gamma * self.sigma * E     # Infections coming from exposures
-                - I * self.sigma)               # infections hospitalizations + mortalities
+        exposed_and_symptomatic = self.gamma * self.sigma * E           # latent period moving to infection = 1 / incubation
+        exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic (but infection) = 1 / incubation
+        dEdt = number_exposed - exposed_and_symptomatic - exposed_and_asymptomatic
+
+        asymptomatic_and_recovered = self.delta_A * A
+        dAdt = exposed_and_asymptomatic - asymptomatic_and_recovered
+
+        # Fraction that didn't die or go to hospital
+        infected_and_recovered_no_hospital = self.sigma * I * (1 - self.mortality_rate - self.hospitalization_rate_general - self.hospitalization_rate_icu)
+        infected_and_in_hospital_general = I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
+        infected_and_in_hospital_icu = I * self.hospitalization_rate_icu / self.symptoms_to_hospital_days
+        infected_and_dead = I * self.mortality_rate / self.symptoms_to_mortality_days
+
+        dIdt = exposed_and_symptomatic - infected_and_recovered_no_hospital - infected_and_in_hospital_general - infected_and_in_hospital_icu - infected_and_dead
+
+        recovered_after_hospital_general = HNonICU / self.hospitalization_length_of_stay_general
+
+        recovered_after_hospital_icu = HICU * ((1 - self.fraction_icu_requiring_ventilator)/ self.hospitalization_length_of_stay_icu
+                                               + self.fraction_icu_requiring_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator)
+
+        dHNonICU_dt = infected_and_in_hospital_general - recovered_after_hospital_general
+        dHICU_dt = infected_and_in_hospital_icu - recovered_after_hospital_icu
+
+        # This compartment is for tracking ventillator count. The beds are accounted for in the ICU cases.
+        dHICUVent_dt = infected_and_in_hospital_icu * self.fraction_icu_requiring_ventilator \
+                       - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
 
         # Fraction that recover
-        dRdt = (self.k_A * A  # Asymptomatic cases flowing in
-                + self.sigma * I # Symptomatic cases flowing in, but not the hospitalized ones.
-               - I * (  self.mortality_rate / self.symptoms_to_mortality_days
-                      + self.hospitalization_rate_icu / self.symptoms_to_hospital_days
-                      + self.hospitalization_rate_general / self.symptoms_to_hospital_days)
-               + HNonICU / self.hospitalization_length_of_stay_general
-               + HICU / self.hospitalization_length_of_stay_icu )
-
-        dHNonICU_dt = (I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
-                       - HNonICU / self.hospitalization_length_of_stay_general)  # Outflow from recovery
-        dHICU_dt = I * self.hospitalization_rate_icu * (1 - self.fraction_icu_requiring_ventilator) / self.symptoms_to_hospital_days \
-                   - HICU / self.hospitalization_length_of_stay_icu # Outflow from ICU recovery
-
-        dHICUVent_dt = I * self.hospitalization_rate_icu * self.fraction_icu_requiring_ventilator / self.symptoms_to_hospital_days \
-                       - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
+        dRdt = (asymptomatic_and_recovered
+                + infected_and_recovered_no_hospital
+                + recovered_after_hospital_general
+                + recovered_after_hospital_icu)
 
         # TODO Modify this based on increased mortality if beds saturated
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
-        dDdt = self.mortality_rate * I / self.symptoms_to_mortality_days  # Fraction that die.
+        dDdt = infected_and_dead  # Fraction that die.
         return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
 
     def run(self):
