@@ -20,11 +20,9 @@ class SEIRModel:
                  R0=2.4,
                  sigma=1 / 5.2,
                  kappa=1,
-                 delta=1 / 7,
                  gamma=0.5,
                  hospitalization_rate_general=0.11,
                  hospitalization_rate_icu=0.04,
-                 mortality_rate=0.0052,
                  symptoms_to_hospital_days=5,
                  symptoms_to_mortality_days=13,
                  hospitalization_length_of_stay_general=8,
@@ -34,6 +32,7 @@ class SEIRModel:
                  beds_general=300,
                  beds_ICU=100,
                  ventilators=60,
+                 mortality_rate=0.0052,
                  mortality_rate_no_ICU_beds=0.85,
                  mortality_rate_no_ventilator=1.0,
                  mortality_rate_no_general_beds=0.6):
@@ -95,9 +94,6 @@ class SEIRModel:
             Latent decay scale is defined as 1 / incubation period.
             1 / 4.8: https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Global-Impact-26-03-2020.pdf
             1 / 5.2 [3, 8]: https://arxiv.org/pdf/2003.10047.pdf
-        delta: float
-            Inverse infectious period (asymptomatic and symptomatic)
-            1/14: https://arxiv.org/pdf/2003.10047.pdf
         gamma: float
             Clinical outbreak rate (fraction of infected that show symptoms)
         hospitalization_rate_general: float
@@ -163,11 +159,10 @@ class SEIRModel:
         self.R0 = R0              # Reproduction Number
         self.sigma = sigma        # Latent Period = 1 / incubation
         self.gamma = gamma        # Clinical outbreak rate
-        self.delta = delta        # Infectious period
         self.kappa = kappa        # Discount fraction due to isolation of symptomatic cases.
 
         # These need to be made age dependent R0 =  beta = Contact rate * infectious period
-        self.beta = self.R0 * self.delta
+        self.beta = self.R0 * self.sigma
 
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_days = symptoms_to_hospital_days
@@ -232,11 +227,11 @@ class SEIRModel:
         exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic but infected) = 1 / incubation
         dEdt = number_exposed - exposed_and_symptomatic - exposed_and_asymptomatic
 
-        asymptomatic_and_recovered = self.delta * A
+        asymptomatic_and_recovered = self.sigma * A
         dAdt = exposed_and_asymptomatic - asymptomatic_and_recovered
 
         # Fraction that didn't die or go to hospital
-        infected_and_recovered_no_hospital = self.delta * I
+        infected_and_recovered_no_hospital = self.sigma * I
         infected_and_in_hospital_general = I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
         infected_and_in_hospital_icu = I * self.hospitalization_rate_icu / self.symptoms_to_hospital_days
         infected_and_dead = I * self.mortality_rate / self.symptoms_to_mortality_days
@@ -283,9 +278,9 @@ class SEIRModel:
             'HICU': HICU,
             'HVent': HVent,
             'D': Deaths from straight mortality. Not including hospital saturation deaths,
-            'expected_death_from_hospital_bed_limits':
-            'expected_death_from_icu_bed_limits':
-            'expected_death_from_ventilator_limits':
+            'deaths_from_hospital_bed_limits':
+            'deaths_from_icu_bed_limits':
+            'deaths_from_ventilator_limits':
             'total_deaths':
         }
         """
@@ -294,7 +289,7 @@ class SEIRModel:
              self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
 
         # Integrate the SIR equations over the time grid, t.
-        result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-2, rtol=1e-2)
+        result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
         S, E, A, I, R, HGen, HICU, HICUVent, D = result_time_series.T
 
 
@@ -319,11 +314,12 @@ class SEIRModel:
             'deaths_from_icu_bed_limits': np.cumsum((HICU - self.beds_ICU).clip(min=0)) * self.mortality_rate_no_ICU_beds / self.hospitalization_length_of_stay_icu,
             'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
         }
-        self.results['total_deaths'] = self.results['deaths_from_hospital_bed_limits'] \
+        self.results['total_deaths'] =   self.results['deaths_from_hospital_bed_limits'] \
                                        + self.results['deaths_from_icu_bed_limits'] \
-                                       + self.results['deaths_from_ventilator_limits']
+                                       + self.results['deaths_from_ventilator_limits'] \
+                                       + self.results['D']
 
-    def plot_results(self, y_scale='log'):
+    def plot_results(self, y_scale='log', xlim=None):
         """
         Generate a summary plot for the simulation.
 
@@ -352,7 +348,10 @@ class SEIRModel:
         # plt.ylim(1, plt.ylim(1))
         plt.grid(True, which='both', alpha=.35)
         plt.legend(framealpha=.5)
-        plt.xlim(0, self.t_list.max())
+        if xlim:
+            plt.xlim(*xlim)
+        else:
+            plt.xlim(0, self.t_list.max())
         plt.ylim(1, self.N * 1.1)
 
         plt.subplot(132)
@@ -378,7 +377,10 @@ class SEIRModel:
         plt.ylim(1, plt.ylim()[1])
         plt.grid(True, which='both', alpha=.35)
         plt.legend(framealpha=.5)
-        plt.xlim(0, self.t_list.max())
+        if xlim:
+            plt.xlim(*xlim)
+        else:
+            plt.xlim(0, self.t_list.max())
 
         # Reproduction numbers
         plt.subplot(133)
