@@ -319,7 +319,7 @@ class SEIRModel:
                                        + self.results['deaths_from_ventilator_limits'] \
                                        + self.results['D']
 
-    def plot_results(self, y_scale='log'):
+    def plot_results(self, y_scale='log', xlim=None):
         """
         Generate a summary plot for the simulation.
 
@@ -348,7 +348,10 @@ class SEIRModel:
         # plt.ylim(1, plt.ylim(1))
         plt.grid(True, which='both', alpha=.35)
         plt.legend(framealpha=.5)
-        plt.xlim(0, self.t_list.max())
+        if xlim:
+            plt.xlim(*xlim)
+        else:
+            plt.xlim(0, self.t_list.max())
         plt.ylim(1, self.N * 1.1)
 
         plt.subplot(132)
@@ -374,7 +377,10 @@ class SEIRModel:
         plt.ylim(1, plt.ylim()[1])
         plt.grid(True, which='both', alpha=.35)
         plt.legend(framealpha=.5)
-        plt.xlim(0, self.t_list.max())
+        if xlim:
+            plt.xlim(*xlim)
+        else:
+            plt.xlim(0, self.t_list.max())
 
         # Reproduction numbers
         plt.subplot(133)

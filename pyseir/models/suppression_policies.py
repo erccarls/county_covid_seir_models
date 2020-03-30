@@ -76,3 +76,34 @@ def piecewise_parametric_policy(x, t_list):
     suppression_levels = [suppression_levels[np.argwhere(t <= periods)[0][0]] for t in t_list]
     policy = interp1d(t_list, suppression_levels, fill_value='extrapolate')
     return policy
+
+
+def fourier_parametric_policy(x, t_list, suppression_bounds=(0.5, 1.5)):
+    """
+    Generate a piecewise suppression policy over n_days based on interval
+    splits at levels passed and according to the split_power_law.
+
+    Parameters
+    ----------
+    x: array(float)
+        First N coefficients for a Fourier series which becomes inversely
+        transformed to generate a real series. a_0 is taken relative to level
+        the mean at 0.75 (a0 = 3 * period / 4) * X[0]
+    t_list: array-like
+        List of days over which the period.
+    suppression_bounds: tuple(float)
+        Lower and upper bounds on the suppression level. This clips the fourier
+        policy.
+
+    Returns
+    -------
+    policy: callable
+        Interpolator for the suppression policy.
+    """
+    frequency_domain = np.zeros(len(t_list))
+    frequency_domain[0] = (3 * (t_list.max() - t_list.min()) / 4) * x[0]
+    frequency_domain[1:len(x)] = x[1:]
+    time_domain = np.fft.ifft(frequency_domain).real + np.fft.ifft(frequency_domain).imag
+
+    return interp1d(t_list, time_domain.clip(min=suppression_bounds[0], max=suppression_bounds[1]),
+                    fill_value='extrapolate')

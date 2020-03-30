@@ -27,6 +27,8 @@ class PolicyOptimizer:
     parametric_policy: callable
         parametric_policy(x0, t_list) should return a callable(t) that produces
         the suppression level at time t.
+    parametric_policy_kwargs: dict
+        Additional kwargs passed to parametric policy.
     x0: array-like
         Initial guess at optimal policy.
     optimization_bounds: list(list)
@@ -40,11 +42,14 @@ class PolicyOptimizer:
                  seir_model_args,
                  parametric_policy,
                  x0,
+                 parametric_policy_kwargs=None,
                  optimization_bounds=None):
 
         self.seir_model_class = seir_model_class
         self.seir_model_args = seir_model_args
         self.parametric_policy = parametric_policy
+        self.parametric_policy_kwargs = parametric_policy_kwargs
+
         self.x0 = x0
         self.optimization_bounds = optimization_bounds
 
@@ -72,7 +77,8 @@ class PolicyOptimizer:
         """
         model = self.seir_model_class(
             **self.seir_model_args,
-            suppression_policy=self.parametric_policy(x, t_list=self.seir_model_args['t_list'])
+            suppression_policy=self.parametric_policy(
+                x, t_list=self.seir_model_args['t_list'], **self.parametric_policy_kwargs)
         )
 
         model.run()
@@ -88,12 +94,12 @@ class PolicyOptimizer:
         # We also add a small Gaussian Prior Toward No Distancing Policy
         # (i.e. suppression_level=1) to stabilize the Fit
         # This prior could be refined to be an alternative outcome such as economic incentives
-        loss = self.fit_results['total_deaths'][-1] \
-               + 0.01 * self.fit_results['total_deaths'][-1] * np.average((x - 1) ** 2)
 
+        loss = self.fit_results['total_deaths'][-1] #\
+                #+ 10 * self.fit_results['total_deaths'][-1] * np.average((x - 1) ** 2)
         return loss
 
-    def run(self, tol=0.01, method=None):
+    def run(self, minimize_kwargs=dict(tol=0.01, method=None)):
         """
         Minimize the death rate and select the best performing model.
 
@@ -103,19 +109,20 @@ class PolicyOptimizer:
 
         Returns
         -------
-
+        minimization_results: dict
+            Results dict from scipy.optimize.minimize.
         """
         self.minimization_results = minimize(
             self._loss_function,
             x0=self.x0,
             bounds=self.optimization_bounds,
-            tol=tol,
-            method=method)
+            **minimize_kwargs)
 
         self.best_model = self.seir_model_class(
             **self.seir_model_args,
             suppression_policy=self.parametric_policy(self.minimization_results['x'],
-                                                      t_list=self.seir_model_args['t_list'])
+                                                      t_list=self.seir_model_args['t_list'],
+                                                      **self.parametric_policy_kwargs)
         )
         self.best_model.run()
 
@@ -143,7 +150,7 @@ class PolicyOptimizer:
         plt.figure(figsize=(8, 8))
 
         evals = range(len(self.fit_results['total_deaths']))
-        plt.plot(evals, self.fit_results['total_deaths'], label='Total Deaths')
+        plt.plot(evals, self.fit_results['total_deaths'], label='Total Deaths', linestyle='')
         plt.plot(evals, self.fit_results['D'], label='Direct COVID Deaths')
         plt.plot(evals, self.fit_results['deaths_from_hospital_bed_limits'], label='Deaths from General Bed Limits')
         plt.plot(evals, self.fit_results['deaths_from_icu_bed_limits'], label='Deaths from ICU Bed Limits')
