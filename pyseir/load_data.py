@@ -45,14 +45,20 @@ def cache_county_case_data():
     Cache county covid case data in #PYSEIR_HOME/data.
     """
     print('Downloading covid case data')
-    county_fips_map = pd.read_csv(os.path.join(DATA_DIR, 'county_state_fips.csv'), dtype='str', low_memory=False)
-    case_data = pd.read_csv('https://coronadatascraper.com/timeseries-tidy.csv', low_memory=False)
+    # Previous datasets from coronadatascraper
+    # county_fips_map = pd.read_csv(os.path.join(DATA_DIR, 'county_state_fips.csv'), dtype='str', low_memory=False)
+    # case_data = pd.read_csv('https://coronadatascraper.com/timeseries-tidy.csv', low_memory=False)
+    #
+    # fips_merged = case_data.merge(county_fips_map, left_on=('county', 'state'), right_on=('COUNTYNAME', 'STATE'))\
+    #           [['STCOUNTYFP', 'county', 'state', 'population', 'lat', 'long', 'date', 'type', 'value']]
+    #
+    # fips_merged.columns = [col.lower() for col in fips_merged.columns]
 
-    fips_merged = case_data.merge(county_fips_map, left_on=('county', 'state'), right_on=('COUNTYNAME', 'STATE'))\
-              [['STCOUNTYFP', 'county', 'state', 'population', 'lat', 'long', 'date', 'type', 'value']]
-
-    fips_merged.columns = [col.lower() for col in fips_merged.columns]
-    fips_merged.to_pickle(os.path.join(DATA_DIR, 'covid_case_timeseries.pkl'))
+    # NYT dataset
+    county_case_data = pd.read_csv('https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv', dtype='str')
+    county_case_data['date'] = pd.to_datetime(county_case_data['date'])
+    county_case_data[['cases', 'deaths']] = county_case_data[['cases', 'deaths']].astype(int)
+    county_case_data.to_pickle(os.path.join(DATA_DIR, 'covid_case_timeseries.pkl'))
 
 
 def cache_county_metadata():
@@ -81,7 +87,7 @@ def cache_county_metadata():
     list_agg['AGE_BIN_EDGES'] = [np.array(age_bins) for _ in
                                  range(len(list_agg))]
 
-    list_agg.insert(0, 'stcountyfp', list_agg['STATE'] + list_agg['COUNTY'])
+    list_agg.insert(0, 'fips', list_agg['STATE'] + list_agg['COUNTY'])
     list_agg = list_agg.drop(['STATE', 'COUNTY', 'TOT_POP'], axis=1)
     list_agg.columns = [col.lower() for col in list_agg.columns]
     list_agg = list_agg.rename(
@@ -101,7 +107,6 @@ def cache_hospital_beds():
     with open(tmp_file) as f:
         vals = json.load(f)
     df = pd.DataFrame([val['properties'] for val in vals['features']])
-    df = df.rename({'FIPS': 'stcountyfp'}, axis=1)
     df.columns = [col.lower() for col in df.columns]
     df = df.drop(['objectid', 'state_fips', 'cnty_fips'], axis=1)
     df.to_pickle(os.path.join(DATA_DIR, 'icu_capacity.pkl'))
