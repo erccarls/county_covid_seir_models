@@ -7,8 +7,8 @@ import iminuit
 
 class InitialConditionsFitter:
 
-    def __init__(self, fips, t0_case_count=5, start_days_before_t0=5,
-                 start_days_after_t0=1000):
+    def __init__(self, fips, t0_case_count=4, start_days_before_t0=2,
+                 start_days_after_t0=1000, min_days_required=6):
         """
         Fit an exponential model to observations assuming a binomial error on
         observations. Identify t0 at the threshold specified.
@@ -32,20 +32,27 @@ class InitialConditionsFitter:
         self.t0_case_count = t0_case_count
         self.start_days_before_t0 = start_days_before_t0
         self.start_days_after_t0 = start_days_after_t0
-
-
+        self.min_days_required = min_days_required
 
         # Load case data
         case_data = load_data.load_county_case_data()
         self.cases = case_data[case_data['fips'] == fips]
+        n_days = len(self.cases)
+        if n_days < min_days_required:
+            raise ValueError(f'Only {n_days} observations for county. Cannot fit.')
+        self.fips = fips
+
+        self.county = self.cases.county.values[0]
+        self.state = self.cases.state.values[0]
+
         self.t = (self.cases.date - self.cases.date.min()).dt.days.values
         self.data_start_date = self.cases.date.min()
-
         self.y = self.cases.cases.values
 
         self.fit_predictions = None
         self.t0 = None
         self.t0_date = None
+        self.reduced_chi2 = None
         self.model_params = None
 
     @staticmethod
@@ -67,7 +74,7 @@ class InitialConditionsFitter:
         return np.exp(norm * np.exp((t - t0) / scale))
 
     @staticmethod
-    def reduced_chi2(y_pred, y):
+    def _reduced_chi2(y_pred, y):
         """
         Calculate reduced chi^2.
 
@@ -86,7 +93,7 @@ class InitialConditionsFitter:
     def exponential_loss(self, norm, t0, scale):
         """Return the reduced chi2 for an exponential fit to teh data"""
         y_pred = self.exponential_model(norm, t0, scale, self.t)
-        return self.reduced_chi2(y_pred, self.y)
+        return self._reduced_chi2(y_pred, self.y)
 
     def fit_county_initial_conditions(self, t, y):
         x0 = dict(norm=1, t0=5, scale=20, error_norm=.01, error_t0=.1, error_scale=.01)
@@ -108,9 +115,17 @@ class InitialConditionsFitter:
 
         self.model_params = self.fit_county_initial_conditions(t_filtered, y_filtered)
         self.fit_predictions = self.exponential_model(**self.model_params, t=self.t)
+        self.reduced_chi2 = self.exponential_loss(**self.model_params)
+
         self.t0_idx = np.argmin(np.abs(self.fit_predictions - self.t0_case_count))
         self.t0 = self.t[self.t0_idx]
         self.t0_date = self.data_start_date + timedelta(days=int(self.t0))
+
+        self.fit_summary = dict(
+            model_params=self.model_params,
+            t0_date=self.t0_date,
+            reduced_chi2=self.reduced_chi2,
+        )
 
     def plot_fit(self):
         plt.figure(figsize=(10, 7))
@@ -120,6 +135,15 @@ class InitialConditionsFitter:
         plt.grid(True, which='both')
         plt.ylabel('Count')
         plt.xlabel(f'Time Since {self.t0_case_count} cases predicted')
+        plt.text(.1, .8, '$C(t) = %1.3f\ \exp^{(t - %1.3f) / %1.3f}$' % (self.model_params["norm"], self.model_params["t0"], self.model_params["scale"]),
+                 transform=plt.gca().transAxes, fontsize=14)
+
+        plt.text(.1, .7, f'{self.t0_case_count} Cases on {self.t0_date.date()}',
+                     transform=plt.gca().transAxes, fontsize=14)
+        plt.text(.1, .6, f'$\chi^2 /d.o.f.=%1.3f$' % self.reduced_chi2,
+                 transform=plt.gca().transAxes, fontsize=14)
+
+        plt.title(f'{self.county} County, {self.state}  FIPS: {self.fips}')
         plt.legend()
 
 
