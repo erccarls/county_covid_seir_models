@@ -89,7 +89,7 @@ def cache_county_metadata():
                                  range(len(list_agg))]
 
     list_agg.insert(0, 'fips', list_agg['STATE'] + list_agg['COUNTY'])
-    list_agg = list_agg.drop(['STATE', 'COUNTY', 'TOT_POP'], axis=1)
+    list_agg = list_agg.drop(['COUNTY', 'TOT_POP'], axis=1)
     list_agg.columns = [col.lower() for col in list_agg.columns]
     list_agg = list_agg.rename(
         mapper={'ctyname': 'county_name', 'total': 'total_population'}, axis=1)
