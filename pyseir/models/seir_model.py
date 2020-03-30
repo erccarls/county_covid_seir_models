@@ -19,6 +19,7 @@ class SEIRModel:
                  D_initial=0,
                  R0=2.5,
                  sigma=1 / 5.2,
+                 delta=1/2.5,
                  kappa=1,
                  gamma=0.5,
                  hospitalization_rate_general=0.025,
@@ -220,7 +221,8 @@ class SEIRModel:
         self.kappa = kappa        # Discount fraction due to isolation of symptomatic cases.
 
         # These need to be made age dependent R0 =  beta = Contact rate * infectious period
-        self.beta = self.R0 * self.sigma
+        self.delta = delta
+        self.beta = self.R0 * self.delta
 
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_days = symptoms_to_hospital_days
@@ -285,11 +287,11 @@ class SEIRModel:
         exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic but infected) = 1 / incubation
         dEdt = number_exposed - exposed_and_symptomatic - exposed_and_asymptomatic
 
-        asymptomatic_and_recovered = self.sigma * A
+        asymptomatic_and_recovered = self.delta * A
         dAdt = exposed_and_asymptomatic - asymptomatic_and_recovered
 
         # Fraction that didn't die or go to hospital
-        infected_and_recovered_no_hospital = self.sigma * I
+        infected_and_recovered_no_hospital = self.delta * I
         infected_and_in_hospital_general = I * self.hospitalization_rate_general / self.symptoms_to_hospital_days
         infected_and_in_hospital_icu = I * self.hospitalization_rate_icu / self.symptoms_to_hospital_days
         infected_and_dead = I * self.mortality_rate / self.symptoms_to_mortality_days
