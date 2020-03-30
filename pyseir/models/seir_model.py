@@ -45,6 +45,66 @@ class SEIRModel:
         not perform monte carlo for individual cases.
 
         Model Refs:
+         # TODO: Incorporate structures and Parameters from Weitz group
+         - https://github.com/jsweitz/covid-19-ga-summer-2020/blob/master/fignearterm_0328_alt.m
+            ```
+                % Init the population - baseline
+                % Open plus hospitals
+                % SEIaIS (open) and then I_ha I_hs and then R (open) and D (cumulative) age stratified
+                tmpzeros = zeros(size(agepars.meanage));
+                outbreak.y0=[population.agefrac tmpzeros tmpzeros tmpzeros tmpzeros tmpzeros tmpzeros tmpzeros tmpzeros];
+                % Initiate an outbreak with 500 symptomatic current caseas and 7500 asymptomatic cases
+                % effective 8000 total and 25 deaths (based on GA estimates)
+                % Initiate an outbreak
+                pars.alpha=0;  % Shielding
+                pars.beta_a=4/10;   % Transmission for asymptomatic
+                pars.beta_s=8/10;      % Transmission for symptomatic
+
+                pars.Ra=pars.beta_a/pars.gamma_a;
+                pars.Rs=pars.beta_s/pars.gamma_s;
+                pars.R0=pars.p*pars.Ra+(1-pars.p)*pars.Rs;
+                pars.p=[0.95 0.95 0.90 0.8 0.7 0.6 0.4 0.2 0.2 0.2];         % Fraction asymptomatic by age
+
+                pars.gamma_e=1/4;   % Transition to infectiousness
+                pars.gamma_a=1/6;   % Resolution rate for asymptomatic
+                pars.gamma_s=1/6;  % Resolution rate for symptomatic
+                pars.gamma_h=1/10;  % Resolution rate in hospitals
+                pars.beta_a=4/10;   % Transmission for asymptomatic
+                pars.beta_s=8/10;      % Transmission for symptomatic
+
+
+                agepars.meanage=5:10:95;
+                agepars.highage=[9:10:99];  % Age groups
+                agepars.lowage=[0:10:90];  % Age groups
+                agepars.hosp_frac=[0.1 0.3 1.2 3.2 4.9 10.2 16.6 24.3 27.3 27.3]/100;
+                agepars.hosp_crit=[5 5 5 5 6.3 12.2 27.4 43.2 70.9 70.9]/100;
+                agepars.crit_die= 0.5*ones(size(agepars.meanage));
+                agepars.num_ages = length(agepars.meanage);
+
+
+                % Assign things
+                dydt=zeros(length(y),1);
+                Ia=sum(y(agepars.Ia_ids));
+                Is=sum(y(agepars.Is_ids));
+                R = sum(y(agepars.R_ids));
+                S = sum(y(agepars.S_ids));
+                E = sum(y(agepars.E_ids));
+
+                % Dynamics -  Base Model
+                dydt(agepars.S_ids)=-pars.beta_a*y(agepars.S_ids)*Ia-pars.beta_s*y(agepars.S_ids)*Is;
+                dydt(agepars.E_ids)=pars.beta_a*y(agepars.S_ids)*Ia+pars.beta_s*y(agepars.S_ids)*Is-pars.gamma_e*y(agepars.E_ids);
+                dydt(agepars.Ia_ids)=pars.p'.*pars.gamma_e.*y(agepars.E_ids)-pars.gamma_a*y(agepars.Ia_ids);
+                dydt(agepars.Is_ids)=(ones(size(pars.p))-pars.p)'.*pars.gamma_e.*y(agepars.E_ids)-pars.gamma_s*y(agepars.Is_ids);
+                dydt(agepars.Ihsub_ids)=agepars.hosp_frac'.*(1-agepars.hosp_crit')*pars.gamma_s.*y(agepars.Is_ids)-pars.gamma_h*y(agepars.Ihsub_ids);
+                dydt(agepars.Ihcri_ids)=agepars.hosp_frac'.*agepars.hosp_crit'*pars.gamma_s.*y(agepars.Is_ids)-pars.gamma_h*y(agepars.Ihcri_ids);
+                dydt(agepars.R_ids)=pars.gamma_a*y(agepars.Ia_ids)+pars.gamma_s*y(agepars.Is_ids).*(1-agepars.hosp_frac')+pars.gamma_h*y(agepars.Ihsub_ids)+pars.gamma_h*y(agepars.Ihcri_ids).*(1-agepars.crit_die');
+                dydt(agepars.D_ids)=pars.gamma_h*y(agepars.Ihcri_ids).*agepars.crit_die';
+                dydt(agepars.Hcum_ids)=agepars.hosp_frac'.*(1-agepars.hosp_crit')*pars.gamma_s.*y(agepars.Is_ids)+agepars.hosp_frac'.*agepars.hosp_crit'*pars.gamma_s.*y(agepars.Is_ids);
+
+
+            ```
+
+
          - https://arxiv.org/pdf/2003.10047.pdf  # We mostly follow this notation.
          - https://arxiv.org/pdf/2002.06563.pdf
 
