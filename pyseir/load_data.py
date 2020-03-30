@@ -134,7 +134,7 @@ def load_county_metadata():
 
     """
     # return pd.read_pickle(os.path.join(DATA_DIR, 'covid_county_metadata.pkl'))
-    return pd.read_json('/Users/ecarlson/county_covid_seir_models/data/county_metadata.json')
+    return pd.read_json('/Users/ecarlson/county_covid_seir_models/data/county_metadata.json', dtype={'fips': 'str'})
 
 
 def load_hospital_data():

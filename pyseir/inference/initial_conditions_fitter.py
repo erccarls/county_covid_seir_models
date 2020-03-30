@@ -1,5 +1,5 @@
+from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
 from pyseir import load_data
 import iminuit
@@ -33,14 +33,19 @@ class InitialConditionsFitter:
         self.start_days_before_t0 = start_days_before_t0
         self.start_days_after_t0 = start_days_after_t0
 
+
+
         # Load case data
         case_data = load_data.load_county_case_data()
         self.cases = case_data[case_data['fips'] == fips]
         self.t = (self.cases.date - self.cases.date.min()).dt.days.values
+        self.data_start_date = self.cases.date.min()
+
         self.y = self.cases.cases.values
 
         self.fit_predictions = None
         self.t0 = None
+        self.t0_date = None
         self.model_params = None
 
     @staticmethod
@@ -101,11 +106,11 @@ class InitialConditionsFitter:
         t_filtered = self.t[filter_start: filter_end]
         y_filtered = self.y[filter_start: filter_end]
 
-        self.model_params = self.fit_county_initial_conditions(t_filtered,
-                                                          y_filtered)
+        self.model_params = self.fit_county_initial_conditions(t_filtered, y_filtered)
         self.fit_predictions = self.exponential_model(**self.model_params, t=self.t)
         self.t0_idx = np.argmin(np.abs(self.fit_predictions - self.t0_case_count))
         self.t0 = self.t[self.t0_idx]
+        self.t0_date = self.data_start_date + timedelta(days=int(self.t0))
 
     def plot_fit(self):
         plt.figure(figsize=(10, 7))
