@@ -9,6 +9,26 @@ class InitialConditionsFitter:
 
     def __init__(self, fips, t0_case_count=5, start_days_before_t0=5,
                  start_days_after_t0=1000):
+        """
+        Fit an exponential model to observations assuming a binomial error on
+        observations. Identify t0 at the threshold specified.
+
+        # TODO: Can we incorporate the death rate into the fit to also infer
+        #       actual cases?
+
+        Parameters
+        ----------
+        fips: str
+            County fips code
+        t0_case_count: int
+            Case count to infer the start date of.
+        start_days_before_t0: int
+            After we find the time of t0_case_count, filter observations
+            occurring more than this many days before.
+        start_days_after_t0: int
+            After we find the time of t0_case_count, filter observations
+            occurring more than this many days after.
+        """
         self.t0_case_count = t0_case_count
         self.start_days_before_t0 = start_days_before_t0
         self.start_days_after_t0 = start_days_after_t0
@@ -25,16 +45,43 @@ class InitialConditionsFitter:
 
     @staticmethod
     def exponential_model(norm, t0, scale, t):
+        """
+        Simple exponential model.
+
+        Parameters
+        ----------
+        norm
+        t0
+        scale
+        t
+
+        Returns
+        -------
+
+        """
         return np.exp(norm * np.exp((t - t0) / scale))
 
     @staticmethod
     def reduced_chi2(y_pred, y):
+        """
+        Calculate reduced chi^2.
+
+        Parameters
+        ----------
+        y_pred
+        y
+
+        Returns
+        -------
+        reduced_chi2: float
+        """
         chi2 = (y_pred[y > 0] - y[y > 0]) ** 2 / y[y > 0]
-        return np.average(chi2)  # Reduced chi2
+        return np.sum(chi2) / (len(chi2) - 1)
 
     def exponential_loss(self, norm, t0, scale):
+        """Return the reduced chi2 for an exponential fit to teh data"""
         y_pred = self.exponential_model(norm, t0, scale, self.t)
-        return self.reduced_chi2(y_pred, y)
+        return self.reduced_chi2(y_pred, self.y)
 
     def fit_county_initial_conditions(self, t, y):
         x0 = dict(norm=1, t0=5, scale=20, error_norm=.01, error_t0=.1, error_scale=.01)
@@ -47,10 +94,10 @@ class InitialConditionsFitter:
         fit_predictions = self.exponential_model(**model_params, t=self.t)
 
         # Filter out data a few days before this and re-fit.
-        t0_idx = np.argmin(np.abs(fit_predictions - t0_case_count))
+        t0_idx = np.argmin(np.abs(fit_predictions - self.t0_case_count))
 
         filter_start = max(0, t0_idx - self.start_days_before_t0)
-        filter_end = min(len(t), t0_idx + self.start_days_after_t0)
+        filter_end = min(len(self.t), t0_idx + self.start_days_after_t0)
         t_filtered = self.t[filter_start: filter_end]
         y_filtered = self.y[filter_start: filter_end]
 
