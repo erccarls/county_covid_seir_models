@@ -17,18 +17,18 @@ class SEIRModel:
                  HICU_initial=0,
                  HICUVent_initial=0,
                  D_initial=0,
-                 R0=2.4,
+                 R0=2.5,
                  sigma=1 / 5.2,
                  kappa=1,
                  gamma=0.5,
-                 hospitalization_rate_general=0.11,
-                 hospitalization_rate_icu=0.04,
+                 hospitalization_rate_general=0.025,
+                 hospitalization_rate_icu=0.025,
+                 fraction_icu_requiring_ventilator=0.75, # TBD Tuned...
                  symptoms_to_hospital_days=5,
                  symptoms_to_mortality_days=13,
-                 hospitalization_length_of_stay_general=8,
-                 hospitalization_length_of_stay_icu=8,
-                 hospitalization_length_of_stay_icu_and_ventilator=12,
-                 fraction_icu_requiring_ventilator=0.53,
+                 hospitalization_length_of_stay_general=7,
+                 hospitalization_length_of_stay_icu=16,
+                 hospitalization_length_of_stay_icu_and_ventilator=17,
                  beds_general=300,
                  beds_ICU=100,
                  ventilators=60,
@@ -100,8 +100,6 @@ class SEIRModel:
                 dydt(agepars.R_ids)=pars.gamma_a*y(agepars.Ia_ids)+pars.gamma_s*y(agepars.Is_ids).*(1-agepars.hosp_frac')+pars.gamma_h*y(agepars.Ihsub_ids)+pars.gamma_h*y(agepars.Ihcri_ids).*(1-agepars.crit_die');
                 dydt(agepars.D_ids)=pars.gamma_h*y(agepars.Ihcri_ids).*agepars.crit_die';
                 dydt(agepars.Hcum_ids)=agepars.hosp_frac'.*(1-agepars.hosp_crit')*pars.gamma_s.*y(agepars.Is_ids)+agepars.hosp_frac'.*agepars.hosp_crit'*pars.gamma_s.*y(agepars.Is_ids);
-
-
             ```
 
 
