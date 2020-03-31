@@ -188,6 +188,9 @@ def load_mobility_data_m50():
     """
     return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
 
+
+
+
 # Ensembles need to access this 1e6 times and it makes 10ms simulations -> 100 ms otherwise.
 in_memory_cache = None
 def load_mobility_data_m50_index():
