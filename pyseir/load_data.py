@@ -191,7 +191,9 @@ def load_mobility_data_m50():
 
 def load_mobility_data_m50_index():
     """
-    Return mobility data without normalization
+    Return mobility data with normalization: per
+    https://github.com/descarteslabs/DL-COVID-19 normal m50 is defined during
+    2020-02-17 to 2020-03-07.
 
     Returns
     -------
