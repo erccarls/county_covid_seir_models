@@ -113,6 +113,35 @@ def cache_hospital_beds():
     df.to_pickle(os.path.join(DATA_DIR, 'icu_capacity.pkl'))
 
 
+def cache_mobility_data():
+    """
+    Pulled from https://github.com/descarteslabs/DL-COVID-19
+    """
+    print('Downloading mobility data.')
+    url = 'https://raw.githubusercontent.com/descarteslabs/DL-COVID-19/master/DL-us-mobility-daterow.csv'
+
+    dtypes_mapping = {
+        'country_code': str,
+        'admin_level': int,
+        'admin1': str,
+        'admin2': str,
+        'fips': str,
+        'samples': int,
+        'm50': float,
+        'm50_index': float}
+
+    df = pd.read_csv(filepath_or_buffer=url, parse_dates=['date'], dtype=dtypes_mapping)
+    df__m50 = df.query('admin_level == 2')[['fips', 'date', 'm50']]
+    df__m50_index = df.query('admin_level == 2')[['fips', 'date', 'm50_index']]
+    df__m50__final = df__m50.groupby('fips').agg(list).reset_index()
+    df__m50_index__final = df__m50_index.groupby('fips').agg(list).reset_index()
+    df__m50__final['m50'] = df__m50__final['m50'].apply(lambda x: np.array(x))
+    df__m50_index__final['m50_index'] = df__m50_index__final['m50_index'].apply(lambda x: np.array(x))
+
+    df__m50__final.to_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
+    df__m50_index__final.to_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl'))
+
+
 def load_county_case_data():
     """
     Return county level case data. The following columns:
@@ -134,7 +163,7 @@ def load_county_metadata():
 
     """
     # return pd.read_pickle(os.path.join(DATA_DIR, 'covid_county_metadata.pkl'))
-    return pd.read_json('/Users/ecarlson/county_covid_seir_models/data/county_metadata.json')
+    return pd.read_json('/Users/ecarlson/county_covid_seir_models/data/county_metadata.json', dtype={'fips': 'str'})
 
 
 def load_hospital_data():
@@ -149,6 +178,30 @@ def load_hospital_data():
     return pd.read_pickle(os.path.join(DATA_DIR, 'icu_capacity.pkl'))
 
 
+def load_mobility_data_m50():
+    """
+    Return mobility data without normalization
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
+
+
+def load_mobility_data_m50_index():
+    """
+    Return mobility data with normalization: per
+    https://github.com/descarteslabs/DL-COVID-19 normal m50 is defined during
+    2020-02-17 to 2020-03-07.
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl'))
+
+
 def cache_all_data():
     """
     Download all datasets locally.
@@ -156,6 +209,7 @@ def cache_all_data():
     cache_county_case_data()
     # cache_county_metadata()
     cache_hospital_beds()
+    cache_mobility_data()
 
 
 if __name__ == '__main__':

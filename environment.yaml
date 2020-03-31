@@ -15,6 +15,7 @@ dependencies:
 - matplotlib
 - pip
 - iminuit
+- us
 - pip:
   - boto3
   - click
