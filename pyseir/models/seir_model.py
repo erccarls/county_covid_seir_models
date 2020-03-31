@@ -368,7 +368,7 @@ class SEIRModel:
             'deaths_from_hospital_bed_limits': np.cumsum((HGen - self.beds_general).clip(min=0)) * self.mortality_rate_no_general_beds / self.hospitalization_length_of_stay_general,
             # Here ICU = ICU + ICUVent, but we want to remove the ventilated fraction and account for that below.
             'deaths_from_icu_bed_limits': np.cumsum((HICU - self.beds_ICU).clip(min=0)) * self.mortality_rate_no_ICU_beds / self.hospitalization_length_of_stay_icu,
-            'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
+            'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator,
             'HGen_cumulative': np.cumsum(HGen) / self.hospitalization_length_of_stay_general,
             'HICU_cumulative': np.cumsum(HICU) / self.hospitalization_length_of_stay_icu,
             'HVent_cumulative': np.cumsum(HICUVent) / self.hospitalization_length_of_stay_icu_and_ventilator
