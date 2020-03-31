@@ -1,3 +1,6 @@
+import datetime
+import os
+import inspect
 import numpy as np
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -5,6 +8,9 @@ from multiprocessing.pool import Pool
 from pyseir.models.seir_model import SEIRModel
 from pyseir.parameters.parameter_ensemble_generator import ParameterEnsembleGenerator
 from pyseir.models.suppression_policies import generate_triggered_suppression_model
+from pyseir.reports.pdf_report_base import PDFReportBase
+from pyseir import OUTPUT_DIR
+from pyseir.load_data import load_county_metadata
 
 
 class EnsembleRunner:
@@ -27,48 +33,95 @@ class EnsembleRunner:
 
     output_percentiles = [5, 32, 50, 68, 95]
 
-    def __init__(self, fips, t0, n_years=3, N_samples=1000, suppression_policy=0.6):
+    def __init__(self, fips, t0, n_years=3, N_samples=1000, suppression_policy=(0.25, 0.5, 0.75)):
+        """
 
-        t_list = np.linspace(0, 365 * n_years, 365 * n_years)
+        Parameters
+        ----------
+        fips
+        t0
+        n_years
+        N_samples
+        suppression_policy
+        """
+
+        self.t_list = np.linspace(0, 365 * n_years, 365 * n_years)
         self.summary = {
+            'date_generated': datetime.datetime.utcnow().isoformat(),
             'suppression_policy': suppression_policy,
             'fips': fips,
             'N_samples': N_samples,
             'n_years': n_years,
-            't0': t0
+            't0': t0,
+            'parameter_priors': inspect.getsource(ParameterEnsembleGenerator.sample_seir_parameters)
+            **load_county_metadata().set_index('fips').loc[fips].to_dict()
         }
 
-        self.parameter_ensemble = ParameterEnsembleGenerator(
-            fips=fips,
-            N_samples=N_samples,
-            t_list=t_list,
-            suppression_policy=generate_triggered_suppression_model(
-                t_list, lockdown_days=n_years * 365, open_days=1, reduction=suppression_policy)
-        ).sample_seir_parameters()
-
-        self.model_ensemble = None
+        self.report = PDFReportBase(filename=os.path.join(OUTPUT_DIR, 'summary_ensemble_projections.pdf',))
+        self.report.write_text_page(self.summary,
+                                    page_heading=f'PySEIR COVID19 Estimates: {self.summary["County"]} County, {self.summary["State"]}',
+                                    title=f'Generated {self.summary["date_generated"]}')
 
     @staticmethod
     def _run_simulation(parameter_set):
+        """
+
+        Parameters
+        ----------
+        parameter_set
+
+        Returns
+        -------
+
+        """
         model = SEIRModel(**parameter_set)
         model.run()
         return model
 
     def run_ensemble(self):
+        """
+
+        Returns
+        -------
+        """
         p = Pool()
-        self.model_ensemble = p.map(self._run_simulation, self.parameter_ensemble)
+        for suppression_policy in self.summary['suppression_policy']:
+            self.parameter_ensemble = ParameterEnsembleGenerator(
+                fips=self.summary['fips'],
+                N_samples=self.summary['N_samples'],
+                t_list=self.t_list,
+                suppression_policy=generate_triggered_suppression_model(
+                    self.t_list, lockdown_days=self.summary['n_years'] * 365, open_days=1,
+                    reduction=suppression_policy)
+            ).sample_seir_parameters()
+
+            self.model_ensemble = p.map(self._run_simulation, self.parameter_ensemble)
+
+            self.run_ensemble()
+            self.generate_output(self.model_ensemble, suppression_policy)
         p.close()
+        self.report.close()
 
-    def generate_output(self):
+    def generate_output(self, model_ensemble, suppression_policy):
+        """
 
-        compartments = {key: [] for key in self.model_ensemble[0].results.keys() if key not in ('t_list')}
+        Parameters
+        ----------
+        model_ensemble
 
-        for model in self.model_ensemble:
+        Returns
+        -------
+
+        """
+
+        compartments = {key: [] for key in model_ensemble[0].results.keys() if key not in ('t_list')}
+
+        for model in model_ensemble:
             for key in compartments:
                 compartments[key].append(model.results[key])
 
         outputs = defaultdict(dict)
-        outputs['t_list'] = self.model_ensemble[0].t_list.tolist()
+        outputs['t_list'] = model_ensemble[0].t_list.tolist()
 
         # ------------------------------------------
         # Calculate Confidence Intervals and Peaks
@@ -95,7 +148,9 @@ class EnsembleRunner:
         # -----------------------------------
         # Plot each compartment distribution
         # -----------------------------------
-        plt.figure(figsize=(20,20))
+        fig = plt.figure(figsize=(20, 20))
+        fig.suptitle(f'PySEIR COVID19 Estimates: {self.summary["County"]} County, {self.summary["State"]}. '
+                     f'Supression Policy (1=No Suppression)={suppression_policy}', fontsize=16)
         for i_plot, compartment in enumerate(compartments):
             plt.subplot(4, 4, i_plot + 1)
             plt.plot(outputs['t_list'], outputs[compartment]['ci_50'], color='steelblue', linewidth=3, label=self.compartment_to_name_map[compartment])
@@ -142,4 +197,4 @@ class EnsembleRunner:
         plt.xlabel('Value at Peak')
         plt.yticks([])
 
-
+        self.report.add_figure(fig)

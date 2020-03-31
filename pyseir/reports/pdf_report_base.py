@@ -3,13 +3,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 import pprint
-import tempfile
 
 
 class PDFReportBase:
 
-    def __init__(self):
-        self.filename = tempfile.NamedTemporaryFile(delete=False).name
+    def __init__(self, filename):
+        self.filename = filename
         self.pdf = PdfPages(self.filename)
 
     def write_text_page(self, obj, title, page_heading=None, figsize=(6, 8),
