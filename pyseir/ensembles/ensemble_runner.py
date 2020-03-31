@@ -13,6 +13,7 @@ from pyseir.models.suppression_policies import generate_triggered_suppression_mo
 from pyseir.reports.pdf_report_base import PDFReportBase
 from pyseir import OUTPUT_DIR
 from pyseir.load_data import load_county_metadata
+from pyseir.inference import fit_results
 
 
 class EnsembleRunner:
@@ -38,14 +39,13 @@ class EnsembleRunner:
 
     output_percentiles = [5, 32, 50, 68, 95]
 
-    def __init__(self, fips, t0, n_years=3, N_samples=500,
+    def __init__(self, fips, n_years=3, N_samples=500,
                  suppression_policy=(0.3, 0.5, 0.70), skip_plots=False):
         """
 
         Parameters
         ----------
-        fips
-        t0
+        fips:
         n_years
         N_samples
         suppression_policy
@@ -61,7 +61,7 @@ class EnsembleRunner:
             'fips': fips,
             'N_samples': N_samples,
             'n_years': n_years,
-            't0': t0,
+            't0': fit_results.get_t0(fips),
             'population': county_metadata['total_population'],
             'population_density': county_metadata['population_density'],
             'state': county_metadata['state'],
@@ -121,6 +121,19 @@ class EnsembleRunner:
                                f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.json")
         with open(model_output_filename, 'w') as f:
             json.dump(self.all_outputs, f)
+
+    def plot_dates(self, log=True):
+        low_limit = plt.ylim()[0]
+        if log:
+            upp_limit = 1 * np.log(plt.ylim()[1])
+        else:
+            upp_limit = 1 * plt.ylim()[1]
+
+        for month in range(4, 11):
+            dt = datetime.datetime(day=1, month=month, year=2020)
+            offset = (dt - self.summary['t0']).days
+            plt.vlines(offset, low_limit, upp_limit, color='firebrick', alpha=.4, linestyles=':')
+            plt.text(offset, low_limit*1.3, dt.strftime('%B'), rotation=90, color='firebrick', alpha=0.6)
 
     def generate_output(self, model_ensemble, suppression_policy):
         """
@@ -211,6 +224,7 @@ class EnsembleRunner:
                 plt.hlines([percentiles[0], percentiles[4]], *plt.xlim(), color='darkseagreen', linestyles='-.', alpha=.4)
                 plt.hlines([percentiles[1], percentiles[3]], *plt.xlim(), color='darkseagreen', linestyles='--', alpha=.2)
             plt.legend()
+            self.plot_dates(log=False)
 
         # -----------------------------
         # Plot peak Timing
@@ -224,6 +238,7 @@ class EnsembleRunner:
             plt.scatter(median, i, label=self.compartment_to_name_map[compartment], c=color_cycle[i])
             plt.fill_betweenx([i-.3, i+.3], [ci32, ci32], [ci68, ci68], alpha=.3, color=color_cycle[i])
             plt.fill_betweenx([i-.1, i+.1], [ci5, ci5], [ci95, ci95], alpha=.3, color=color_cycle[i])
+        self.plot_dates(log=False)
         plt.legend(loc=(1.05, 0.0))
         plt.grid(True, which='both', alpha=0.3)
         plt.xlabel('Peak Time After $t_0(C=5)$ [Days]')
@@ -253,7 +268,7 @@ class EnsembleRunner:
 
 
 def _run_county(fips, ensemble_kwargs):
-    runner = EnsembleRunner(fips=fips, t0=0, **ensemble_kwargs) # TODO: Update t0
+    runner = EnsembleRunner(fips=fips, **ensemble_kwargs)
     runner.run_ensemble()
 
 

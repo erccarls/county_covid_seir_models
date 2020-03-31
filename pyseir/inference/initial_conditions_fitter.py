@@ -228,7 +228,7 @@ def generate_start_times_for_state(state):
     merged.loc[samples_with_no_data, 'imputed_start_time'] = True
     merged.loc[samples_with_data, 'imputed_start_time'] = False
     merged.loc[samples_with_data, 'doubling_rate_days'] = np.log(2) * merged['model_params'][samples_with_data].apply(lambda x: x['scale'])
-    merged.to_json(os.path.join(state_dir, f'summary__{fitter.state}_imputed_start_times.json'), lines=True, orient='records')
+    merged.to_pickle(os.path.join(state_dir, f'summary__{fitter.state}_imputed_start_times.pkl'))
 
     # Plot population density
     plt.figure(figsize=(14, 4))

@@ -16,6 +16,7 @@ dependencies:
 - pip
 - iminuit
 - us
+- fastparquet
 - pip:
   - boto3
   - click
