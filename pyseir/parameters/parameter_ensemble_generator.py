@@ -29,7 +29,7 @@ class ParameterEnsembleGenerator:
         suppression_policy: callable(t): pyseir.model.suppression_policy
             Suppression policy to apply.
         """
-        self.fips = fips
+        #self.fips = fips
         self.N_samples = N_samples
         self.ventilators_per_icu_bed = ventilators_per_icu_bed
         self.I_initial = I_initial
