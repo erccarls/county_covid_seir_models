@@ -163,7 +163,7 @@ def load_county_metadata():
 
     """
     # return pd.read_pickle(os.path.join(DATA_DIR, 'covid_county_metadata.pkl'))
-    return pd.read_json('/Users/ecarlson/county_covid_seir_models/data/county_metadata.json', dtype={'fips': 'str'})
+    return pd.read_json(os.path.join(DATA_DIR, 'county_metadata.json'), dtype={'fips': 'str'})
 
 
 def load_hospital_data():
@@ -188,7 +188,8 @@ def load_mobility_data_m50():
     """
     return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
 
-
+# Ensembles need to access this 1e6 times and it makes 10ms simulations -> 100 ms otherwise.
+in_memory_cache = None
 def load_mobility_data_m50_index():
     """
     Return mobility data with normalization: per
@@ -199,7 +200,13 @@ def load_mobility_data_m50_index():
     -------
     : pd.DataFrame
     """
-    return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl'))
+    global in_memory_cache
+    if in_memory_cache is not None:
+        return in_memory_cache
+    else:
+        in_memory_cache = pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl')).set_index('fips')
+
+    return in_memory_cache.copy()
 
 
 def cache_all_data():
