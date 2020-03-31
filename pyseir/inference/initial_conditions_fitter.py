@@ -1,14 +1,22 @@
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
+import os
 import numpy as np
-from pyseir import load_data
+import pandas as pd
 import iminuit
+from sklearn.linear_model import LinearRegression, BayesianRidge
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import cross_validate
+import seaborn as sns
+from pyseir import load_data
+from pyseir import OUTPUT_DIR
+
 
 
 class InitialConditionsFitter:
 
     def __init__(self, fips, t0_case_count=4, start_days_before_t0=2,
-                 start_days_after_t0=1000, min_days_required=6):
+                 start_days_after_t0=1000, min_days_required=5):
         """
         Fit an exponential model to observations assuming a binomial error on
         observations. Identify t0 at the threshold specified.
@@ -71,7 +79,7 @@ class InitialConditionsFitter:
         -------
 
         """
-        return np.exp(norm * np.exp((t - t0) / scale))
+        return norm * np.exp((t - t0) / scale)
 
     @staticmethod
     def _reduced_chi2(y_pred, y):
@@ -147,13 +155,109 @@ class InitialConditionsFitter:
         plt.legend()
 
 
-if __name__ == '__main__':
+def generate_start_times_for_state(state):
+    """
+    Generate imputed start dates for each county.
 
-    fitter = InitialConditionsFitter(
-        fips='06075',  # SF County
-        t0_case_count=5,
-        start_days_before_t0=5,
-        start_days_after_t0=1000
-    )
-    fitter.fit()
-    fitter.plot_fit()
+    Parameters
+    ----------
+    state: str
+        State to model counties of.
+    """
+    metadata = load_data.load_county_metadata()
+    state_dir = os.path.join(OUTPUT_DIR, state)
+    os.makedirs(state_dir, exist_ok=True)
+    print(state.capitalize())
+    counties = metadata[metadata['state'].str.lower() == state.lower()].fips
+    if len(counties) == 0:
+        raise ValueError(f'No entries for state {state}.')
+
+    # Fit exponential model to extract T0.
+    fips_to_fit_map = {}
+    for fips in counties.values:
+        try:
+            fitter = InitialConditionsFitter(
+                fips=fips, # SF County
+                t0_case_count=5,
+                start_days_before_t0=0,
+                start_days_after_t0=1000
+            )
+
+            fitter.fit()
+            fitter.plot_fit()
+            plt.savefig(os.path.join(state_dir, f'{fitter.state}__{fitter.county}__{fitter.fips}__t0_fit.png'), bbox_inches='tight')
+            plt.close()
+            fips_to_fit_map[fips] = fitter.fit_summary
+
+        except ValueError as e:
+            print(e)
+            fips_to_fit_map[fips] = {'model_params': None, 't0_date': None, 'reduced_chi2': None}
+
+    # --------------------------------
+    # ML to Impute start time for counties with no data based on pop. density
+    # -------------------------------
+
+    # Merge in county level metadata.
+    county_fits = pd.DataFrame.from_dict(fips_to_fit_map, orient='index').reset_index().rename({'index': 'fips'}, axis=1)
+    merged = county_fits.merge(metadata, on='fips')
+    merged['days_from_2020_01_01'] = (merged.t0_date - datetime.fromisoformat('2020-01-01')).dt.days
+
+
+
+    samples_with_data = merged['days_from_2020_01_01'].notnull()
+    samples_with_no_data = merged['days_from_2020_01_01'].isnull()
+
+    X = np.log(merged[['population_density', 'housing_density', 'total_population']][samples_with_data])
+    X_predict = np.log(merged[['population_density', 'housing_density', 'total_population']][samples_with_no_data])
+
+    # Test a few regressors
+    for estimator in [LinearRegression(), RandomForestRegressor(), BayesianRidge()]:
+        cv_result = cross_validate(estimator, X=X, y=merged['days_from_2020_01_01'][samples_with_data], scoring='r2', cv=4)
+        print(f'{estimator.__class__.__name__} CV r2: {cv_result["test_score"].mean()}')
+
+    # Train best model and impute the missing times.
+    best_model = BayesianRidge()
+    best_model.fit(X=X, y=merged['days_from_2020_01_01'][samples_with_data])
+
+    if samples_with_no_data.values.any():
+        merged.loc[samples_with_no_data, 'days_from_2020_01_01'] = best_model.predict(X_predict)
+        merged.loc[samples_with_no_data, 't0_date'] = datetime.fromisoformat('2020-01-01') \
+                                                      + np.array([timedelta(days=t) for t in best_model.predict(X_predict)])
+
+    # Plot doubling time by population density
+    merged.loc[samples_with_no_data, 'imputed_start_time'] = True
+    merged.loc[samples_with_data, 'imputed_start_time'] = False
+    merged.loc[samples_with_data, 'doubling_rate_days'] = np.log(2) * merged['model_params'][samples_with_data].apply(lambda x: x['scale'])
+    merged.to_json(os.path.join(state_dir, f'summary__{fitter.state}_imputed_start_times.json'), lines=True, orient='records')
+
+    # Plot population density
+    plt.figure(figsize=(14, 4))
+    for i, x in enumerate(('population_density', 'housing_density', 'total_population')):
+        plt.subplot(1, 3, i + 1)
+        plt.title(state)
+        sns.jointplot(x=np.log10(merged[x]), y='days_from_2020_01_01', data=merged, kind='reg', height=5)
+        plt.xlabel('log10 Population Density')
+    plt.savefig(os.path.join(state_dir,f'summary__{fitter.state}__population_density.png'), bbox_inches='tight')
+    plt.close()
+
+    # Plot Doubling Rates by distance
+    # TODO: Impute doubling time.
+    sns.jointplot(np.log10(merged.population_density), merged.doubling_rate_days, kind='reg', height=10)
+    plt.xlabel('Log10 Population Density', fontsize=16)
+    plt.ylabel('Doubling Time [Days]', fontsize=16)
+    plt.grid()
+    plt.savefig(os.path.join(state_dir, f'summary__{fitter.state}__doubling_time.png'), bbox_inches='tight')
+    plt.close()
+
+
+if __name__ == '__main__':
+    #
+    # fitter = InitialConditionsFitter(
+    #     fips='06075',  # SF County
+    #     t0_case_count=5,
+    #     start_days_before_t0=5,
+    #     start_days_after_t0=1000
+    # )
+    # fitter.fit()
+    # fitter.plot_fit()
+    generate_start_times_for_state('California')
