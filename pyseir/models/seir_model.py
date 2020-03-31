@@ -387,7 +387,7 @@ class SEIRModel:
             Matplotlib scale to use on y-axis. Typically 'log' or 'linear'
         """
         # Plot the data on three separate curves for S(t), I(t) and R(t)
-        plt.figure(facecolor='w', figsize=(20, 6))
+        fig = plt.figure(facecolor='w', figsize=(20, 6))
         plt.subplot(131)
         plt.plot(self.t_list, self.results['S'], alpha=1, lw=2, label='Susceptible')
         plt.plot(self.t_list, self.results['E'], alpha=.5, lw=2, label='Exposed')
@@ -446,3 +446,4 @@ class SEIRModel:
         plt.ylabel('Contact Rate Reduction')
         plt.xlabel('Time [days]', fontsize=12)
         plt.grid(True, which='both')
+        return fig

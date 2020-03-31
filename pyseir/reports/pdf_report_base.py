@@ -3,17 +3,16 @@ from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 import pprint
-import tempfile
 
 
 class PDFReportBase:
 
-    def __init__(self):
-        self.filename = tempfile.NamedTemporaryFile(delete=False).name
+    def __init__(self, filename):
+        self.filename = filename
         self.pdf = PdfPages(self.filename)
 
     def write_text_page(self, obj, title, page_heading=None, figsize=(6, 8),
-                        pprint_kwargs=None, color='k', body_fontsize=5,
+                        pprint_kwargs=None, color='k', body_fontsize=4,
                         heading_fontsize=7, title_fontsize=12):
         """
         Use matplotlib to plot a blank figure and add text to it.
@@ -46,7 +45,7 @@ class PDFReportBase:
             s = pprint.pformat(obj, indent=0, **pprint_kwargs)
         else:
             s = obj
-        fig = plt.figure(figsize=figsize or (7, len(s.split('\n')) * 0.15))
+        fig = plt.figure(figsize=figsize or (7, len(s.split('\n')) * 0.4))
         if page_heading:
             plt.title(page_heading, fontsize=heading_fontsize)
         plt.text(0, .98, title, transform=plt.gca().transAxes,
