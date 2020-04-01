@@ -275,4 +275,6 @@ class ModelFitter:
                          color='b', alpha=.1, label='68% CI')
         plt.scatter(self.observation_t_list, self.observations, label='observations')
         plt.yscale('log')
+        plt.xlabel('time (days)')
+        plt.legend()
 
