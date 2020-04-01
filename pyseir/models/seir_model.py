@@ -11,6 +11,7 @@ class SEIRModel:
                  suppression_policy,
                  A_initial=50,
                  I_initial=50,
+                 T_initial=0,
                  R_initial=0,
                  E_initial=0,
                  HGen_initial=0,
@@ -205,6 +206,7 @@ class SEIRModel:
         self.R_initial = R_initial
         self.E_initial = E_initial
         self.D_initial = D_initial
+        self.T_initial = T_initial
 
         self.HGen_initial = HGen_initial
         self.HICU_initial = HICU_initial
@@ -258,7 +260,7 @@ class SEIRModel:
         """
         One integral moment.
         """
-        S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
+        S, E, A, I, T, R, HNonICU, HICU, HICUVent, D = y
 
         # TODO: County-by-county affinity matrix terms can be used to describe
         # transmission network effects. ( also known as Multi-Region SEIR)
@@ -298,6 +300,8 @@ class SEIRModel:
 
         dIdt = exposed_and_symptomatic - infected_and_recovered_no_hospital - infected_and_in_hospital_general - infected_and_in_hospital_icu - infected_and_dead
 
+        dTdt = exposed_and_symptomatic
+
         recovered_after_hospital_general = HNonICU / self.hospitalization_length_of_stay_general
         recovered_after_hospital_icu = HICU * ((1 - self.fraction_icu_requiring_ventilator)/ self.hospitalization_length_of_stay_icu
                                                + self.fraction_icu_requiring_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator)
@@ -319,7 +323,7 @@ class SEIRModel:
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
         dDdt = infected_and_dead  # Fraction that die.
-        return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
+        return dSdt, dEdt, dAdt, dIdt, dTdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
 
     def run(self):
         """
@@ -333,6 +337,7 @@ class SEIRModel:
             'S': S,
             'E': E,
             'I': I,
+            'T': T,
             'R': R,
             'HNonICU': HNonICU,
             'HICU': HICU,
@@ -345,12 +350,12 @@ class SEIRModel:
         }
         """
         # Initial conditions vector
-        y0 = self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.R_initial,\
+        y0 = self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.T_initial, self.R_initial,\
              self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
 
         # Integrate the SIR equations over the time grid, t.
         result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
-        S, E, A, I, R, HGen, HICU, HICUVent, D = result_time_series.T
+        S, E, A, I, T, R, HGen, HICU, HICUVent, D = result_time_series.T
 
         self.results = {
             't_list': self.t_list,
@@ -358,6 +363,7 @@ class SEIRModel:
             'E': E,
             'A': A,
             'I': I,
+            'T': T,
             'R': R,
             'HGen': HGen,
             'HICU': HICU,
