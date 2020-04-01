@@ -181,7 +181,7 @@ class ModelFitter:
 
         return error_scale
 
-    def calculate_stat(self, values, likelihoods):
+    def calculate_stats(self, values, likelihoods):
         sorted_idx = np.argsort(values)
         values = values[sorted_idx]
         likelihoods = likelihoods[sorted_idx]
@@ -195,16 +195,18 @@ class ModelFitter:
         stat['ci68_lower'] = f(0.16)
         stat['ci68_upper'] = f(0.84)
         stat['median'] = f(0.5)
-        stat['mean'] = (values * likelihoods) / likelihoods.sum()
+        stat['mean'] = (values * likelihoods).sum() / likelihoods.sum()
 
         return stat
 
     def rescale_ci(self, stat):
         # rescale based on forecasting error scale
-        stat['ci95_lower'] = stat['median'] - (stat['median'] - stat['ci95_lower']) * stat['error_scale']
-        stat['ci95_upper'] = stat['median'] + (stat['ci95_upper'] - stat['median']) * stat['error_scale']
-        stat['ci68_lower'] = stat['median'] - (stat['median'] - stat['ci68_lower']) * stat['error_scale']
-        stat['ci68_upper'] = stat['median'] + (stat['ci68_upper'] - stat['median']) * stat['error_scale']
+        stat['ci95_lower_rescale'] = stat['median'] - (stat['median'] - stat['ci95_lower']) * stat['error_scale']
+        stat['ci95_upper_rescale'] = stat['median'] + (stat['ci95_upper'] - stat['median']) * stat['error_scale']
+        stat['ci68_lower_rescale'] = stat['median'] - (stat['median'] - stat['ci68_lower']) * stat['error_scale']
+        stat['ci68_upper_rescale'] = stat['median'] + (stat['ci68_upper'] - stat['median']) * stat['error_scale']
+
+        return stat
 
 
     def projection_stats(self, projections, error_scale):
@@ -262,18 +264,26 @@ class ModelFitter:
 
         return projection_stats
 
-    def plot_projection(self, projection_stats):
+    def plot_projection(self, projection_stats, forecasting_rescale=True):
+        if forecasting_rescale:
+            suffix = '_rescale'
+        else:
+            suffix = ''
         plt.plot(projection_stats['time'], projection_stats['mean'], linewidth=2, label='mean')  # mean curve.
-        plt.plot(projection_stats['time'], projection_stats['median'], linewidth=2,
-                 label='median', linestyle='--')  # median curve.
+        plt.plot(projection_stats['time'], projection_stats['median'], linewidth=2, label='median')
+        # median curve.
+        '''plt.fill_between(projection_stats['time'],
+                         projection_stats['ci95_lower%s' % suffix],
+                         projection_stats['ci95_upper%s' % suffix],
+                         facecolor='b', alpha=0.05, label='95% CI')
         plt.fill_between(projection_stats['time'],
-                         projection_stats['ci95_lower'],
-                         projection_stats['ci95_upper'],
-                         color='b', alpha=0.05, label='95% CI')
-        plt.fill_between(projection_stats['time'],
-                         projection_stats['ci68_lower'],
-                         projection_stats['ci68_upper'],
-                         color='b', alpha=.1, label='68% CI')
+                         projection_stats['ci68_lower%s' % suffix],
+                         projection_stats['ci68_upper%s' % suffix],
+                         facecolor='b', alpha=.1, label='68% CI')'''
+        plt.plot(projection_stats['time'], projection_stats['ci95_lower%s' % suffix], color='r',
+                 linestyle='--')
+        plt.plot(projection_stats['time'], projection_stats['ci95_upper%s' % suffix], color='r',
+                 linestyle='--', label = '95% CI')
         plt.scatter(self.observation_t_list, self.observations, label='observations')
         plt.yscale('log')
         plt.xlabel('time (days)')
