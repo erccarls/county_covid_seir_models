@@ -255,6 +255,9 @@ class SEIRModel:
     def _time_step(self, y, t):
         """
         One integral moment.
+
+        y: array
+            S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
         """
         S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
 

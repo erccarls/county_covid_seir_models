@@ -5,6 +5,8 @@ import urllib.request
 import io
 import zipfile
 import json
+from datetime import datetime
+from pyseir import OUTPUT_DIR
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 
@@ -42,18 +44,9 @@ def load_zip_get_file(url, file, decoder='utf-8'):
 
 def cache_county_case_data():
     """
-    Cache county covid case data in #PYSEIR_HOME/data.
+    Cache county covid case data from NYT in #PYSEIR_HOME/data.
     """
     print('Downloading covid case data')
-    # Previous datasets from coronadatascraper
-    # county_fips_map = pd.read_csv(os.path.join(DATA_DIR, 'county_state_fips.csv'), dtype='str', low_memory=False)
-    # case_data = pd.read_csv('https://coronadatascraper.com/timeseries-tidy.csv', low_memory=False)
-    #
-    # fips_merged = case_data.merge(county_fips_map, left_on=('county', 'state'), right_on=('COUNTYNAME', 'STATE'))\
-    #           [['STCOUNTYFP', 'county', 'state', 'population', 'lat', 'long', 'date', 'type', 'value']]
-    #
-    # fips_merged.columns = [col.lower() for col in fips_merged.columns]
-
     # NYT dataset
     county_case_data = pd.read_csv('https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv', dtype='str')
     county_case_data['date'] = pd.to_datetime(county_case_data['date'])
@@ -61,7 +54,7 @@ def cache_county_case_data():
     county_case_data = county_case_data[county_case_data['fips'].notnull()]
     county_case_data.to_pickle(os.path.join(DATA_DIR, 'covid_case_timeseries.pkl'))
 
-
+#### Deprecated
 # def cache_county_metadata():
 #     """
 #     Cache 2019 census data including age distribution by state/county FIPS.
@@ -166,6 +159,27 @@ def load_county_metadata():
     return pd.read_json(os.path.join(DATA_DIR, 'county_metadata.json'), dtype={'fips': 'str'})
 
 
+def load_ensemble_results(fips):
+    """
+    Retreive
+
+    Parameters
+    ----------
+    fips: str
+        County FIPS to load.
+
+    Returns
+    -------
+    ensemble_results: dict
+    """
+    county_metadata = load_county_metadata().set_index('fips')
+    state, county = county_metadata.loc[fips]['state'], county_metadata.loc[fips]['county']
+    path = os.path.join(OUTPUT_DIR, state, f"{state}__{county}__{fips}__ensemble_projections.json")
+    with open(path) as f:
+        fit_results = json.load(f)
+    return fit_results
+
+
 def load_hospital_data():
     """
     Return hospital level data. Note that this must be aggregated by stcountyfp
@@ -189,8 +203,6 @@ def load_mobility_data_m50():
     return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
 
 
-
-
 # Ensembles need to access this 1e6 times and it makes 10ms simulations -> 100 ms otherwise.
 in_memory_cache = None
 def load_mobility_data_m50_index():
@@ -212,12 +224,31 @@ def load_mobility_data_m50_index():
     return in_memory_cache.copy()
 
 
+def load_t0(fips):
+    """
+    Load the simulation start time by county.
+
+    Parameters
+    ----------
+    fips: str
+        County FIPS
+
+    Returns
+    -------
+    : datetime
+        t0(C=5) cases.
+    """
+    county_metadata = load_county_metadata().set_index('fips')
+    state = county_metadata.loc[fips]['state']
+    fit_results = os.path.join(OUTPUT_DIR, state, f'summary__{state}_imputed_start_times.pkl')
+    return datetime.fromtimestamp(pd.read_pickle(fit_results).set_index('fips').loc[fips]['t0_date'].timestamp())
+
+
 def cache_all_data():
     """
     Download all datasets locally.
     """
     cache_county_case_data()
-    # cache_county_metadata()
     cache_hospital_beds()
     cache_mobility_data()
 
