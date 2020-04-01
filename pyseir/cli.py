@@ -1,9 +1,12 @@
+import os
 import click
 import us
+import logging
 from pyseir.load_data import cache_all_data
 from pyseir.inference.initial_conditions_fitter import generate_start_times_for_state
 from pyseir.ensembles.ensemble_runner import run_state
-
+from pyseir.reports.state_report import StateReport
+from pyseir import OUTPUT_DIR
 
 
 @click.group()
@@ -17,28 +20,68 @@ def download_data():
     cache_all_data()
 
 
-@entry_point.command()
-@click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
-def impute_start_dates(state):
+def _impute_start_dates(state=None):
     if state:
-        generate_start_times_for_state(state=state)
+        generate_start_times_for_state(state=state.title())
+    else:
+        for state in us.states.STATES:
+            _impute_start_dates(state)
+
+
+def _run_ensembles(state=None):
+    if state:
+        run_state(state, ensemble_kwargs={})
+    else:
+        for state in us.states.STATES:
+            run_state(state, ensemble_kwargs={})
+
+
+def _generate_state_reports(state=None):
+    if state:
+        report = StateReport(state.title())
+        report.generate_report()
+    else:
+        for state in us.states.STATES:
+            _generate_state_reports(state.title())
+
+
+def _run_all(state=None):
+    exceptions = []
+    cache_all_data()
+
+    if state:
+        _impute_start_dates(state.title())
+        _run_ensembles(state.title())
+        _generate_state_reports(state.title())
     else:
         for state in us.states.STATES:
             try:
-                generate_start_times_for_state(state=state.name)
+                _generate_state_reports(state.name)
             except ValueError as e:
-                print(e)
+                exceptions.append(exceptions)
+    for exception in exceptions:
+        logging.critical(exception)
+
+
+@entry_point.command()
+@click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
+def impute_start_dates(state):
+    _impute_start_dates(state)
 
 
 @entry_point.command()
 @click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
 def run_ensembles(state):
+    _run_ensembles(state)
 
-    if state:
-        run_state(state, ensemble_kwargs={})
-    else:
-        for state in us.states.STATES:
-            try:
-                run_state(state, ensemble_kwargs={})
-            except ValueError as e:
-                print(e)
+
+@entry_point.command()
+@click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
+def generate_state_report(state):
+    _generate_state_reports(state)
+
+
+@entry_point.command()
+@click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
+def run_all(state=None):
+    _run_all(state)
