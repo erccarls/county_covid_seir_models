@@ -19,6 +19,7 @@ class ModelFitter:
                  parameter_sample_n,
                  priors,
                  likelihood_method,
+                 error_augmentation,
                  projection_start_time,
                  projection_end_time):
         """
@@ -48,6 +49,7 @@ class ModelFitter:
         self.parameter_sample_n = parameter_sample_n
         self.priors = priors
         self.likelihood_method = likelihood_method
+        self.error_augmentation = error_augmentation
 
         self.fit_summary = None
 
@@ -116,7 +118,7 @@ class ModelFitter:
             model, predictions = self.run_model(self.model_params, param, self.observation_t_list)
             likelihood = self.log_likelihood(predictions, self.observations,
                                              degree_of_freedom=len(self.observations) - 1,
-                                             scenario='log_likelihood')
+                                             scenario=self.likelihood_method)
             likelihoods.append(likelihood)
         results['likelihood'] = likelihoods
         results = pd.DataFrame(results)
@@ -175,10 +177,34 @@ class ModelFitter:
         # time steps
         hs = np.maximum(t_list, projection_start_time) - projection_start_time
         T = t_list.max()
-        scale = (hs * (1 + hs/T) + 1) ** (1/2)
-        error_scale = dict(zip(list(t_list), list(scale)))
+        error_scale = (hs * (1 + hs/T) + 1) ** (1/2)
 
         return error_scale
+
+    def calculate_stat(self, values, likelihoods):
+        sorted_idx = np.argsort(values)
+        values = values[sorted_idx]
+        likelihoods = likelihoods[sorted_idx]
+        cdf = np.cumsum(likelihoods)
+        cdf /= cdf.max()
+        f = scipy.interpolate.interp1d(cdf, values)
+
+        stat = {}
+        stat['ci95_lower'] = f(0.025)
+        stat['ci95_upper'] = f(0.975)
+        stat['ci68_lower'] = f(0.16)
+        stat['ci68_upper'] = f(0.84)
+        stat['median'] = f(0.5)
+        stat['mean'] = (values * likelihoods) / likelihoods.sum()
+
+        return stat
+
+    def rescale_ci(self, stat):
+        # rescale based on forecasting error scale
+        stat['ci95_lower'] = stat['median'] - (stat['median'] - stat['ci95_lower']) * stat['error_scale']
+        stat['ci95_upper'] = stat['median'] + (stat['ci95_upper'] - stat['median']) * stat['error_scale']
+        stat['ci68_lower'] = stat['median'] - (stat['median'] - stat['ci68_lower']) * stat['error_scale']
+        stat['ci68_upper'] = stat['median'] + (stat['ci68_upper'] - stat['median']) * stat['error_scale']
 
 
     def projection_stats(self, projections, error_scale):
@@ -186,44 +212,17 @@ class ModelFitter:
         projection_stats = []
         for col in projections:
             if 'pred' in col:
-                projection_stat = {}
                 t = int(col.split('_')[1])
-                projections = projections.sort_values(col)
-                cdf = projections['likelihood'].cumsum()
-                cdf /= cdf.max()
-                f = scipy.interpolate.interp1d(cdf, projections[col])
-                projection_stat['ci95_lower'] = f(0.025)
-                projection_stat['ci95_upper'] = f(0.975)
-                projection_stat['ci68_lower'] = f(0.16)
-                projection_stat['ci68_upper'] = f(0.82)
-                projection_stat['median'] = f(0.5)
-                projection_stat['mean'] = (projections['likelihood'] * projections[col]).sum() / projections[
-                    'likelihood'].sum()
-
-                # rescale based on forecasting error scale
-                projection_stat['ci95_lower'] = \
-                    float(projection_stat['median'] - (projection_stat['median']
-                                                 - projection_stat['ci95_lower']) * error_scale[t])
-                projection_stat['ci95_upper'] = \
-                    float(projection_stat['median'] + (projection_stat['ci95_upper'] - projection_stat['median']) * \
-                    error_scale[t])
-
-                projection_stat['ci68_lower'] = \
-                    float(projection_stat['median'] - (projection_stat['median']
-                                                       - projection_stat['ci68_lower']) * error_scale[t])
-                projection_stat['ci68_upper'] = \
-                    float(projection_stat['median'] + (projection_stat['ci68_upper'] - projection_stat['median']) * \
-                          error_scale[t])
-
+                projection_stat = self.calculate_stats(projections[col], projections['likelihood'])
                 projection_stat['time'] = t
-
                 projection_stats.append(projection_stat)
 
         projection_stats = pd.DataFrame(projection_stats)
-
+        projection_stats['error_scale'] = error_scale
+        projection_stats = self.rescale_ci(projection_stats)
         return projection_stats
 
-    def run_projection(self, error_augmentation=True):
+    def run_projection(self):
         self.model_params.update({'t_list': range(0, self.projection_end_time)})
         projections = {}
 
@@ -254,7 +253,7 @@ class ModelFitter:
         projections['likelihood'] = \
             projections[[col for col in projections.columns if 'posterior' in col]].product(axis=1)
 
-        if error_augmentation:
+        if self.error_augmentation:
             error_scale = self._error_scale(np.array(self.model_params['t_list']), self.projection_start_time)
         else:
             error_scale = {t: 1 for t in self.model_params['t_list']}
@@ -264,7 +263,9 @@ class ModelFitter:
         return projection_stats
 
     def plot_projection(self, projection_stats):
-        plt.plot(projection_stats['time'], projection_stats['median'], linewidth=2)  # mean curve.
+        plt.plot(projection_stats['time'], projection_stats['mean'], linewidth=2, label='mean')  # mean curve.
+        plt.plot(projection_stats['time'], projection_stats['median'], linewidth=2,
+                 label='median', linestyle='--')  # median curve.
         plt.fill_between(projection_stats['time'],
                          projection_stats['ci95_lower'],
                          projection_stats['ci95_upper'],
