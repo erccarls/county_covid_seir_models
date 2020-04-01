@@ -5,19 +5,21 @@ import pandas as pd
 from datetime import datetime
 
 
-def get_t0(fips):
+def load_t0(fips):
     """
-    Given FIPS return a datetime object with t0(C=N) cases.
+    Load the simulation start time by county.
 
     Parameters
     ----------
-    fips
+    fips: str
+        County FIPS
 
     Returns
     -------
     : datetime
+        t0(C=5) cases.
     """
     county_metadata = load_county_metadata().set_index('fips')
     state = county_metadata.loc[fips]['state']
-    fit_results = os.path.join(OUTPUT_DIR, state, f'summary__{state}_imputed_start_times.pkl')
+    fit_results = os.path.join(OUTPUT_DIR, state, 'data', f'summary__{state}_imputed_start_times.pkl')
     return datetime.fromtimestamp(pd.read_pickle(fit_results).set_index('fips').loc[fips]['t0_date'].timestamp())

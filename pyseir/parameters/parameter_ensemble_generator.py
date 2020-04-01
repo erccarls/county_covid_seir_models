@@ -3,30 +3,30 @@ from pyseir import load_data
 
 
 class ParameterEnsembleGenerator:
+    """
+    Generate ensembles of parameters for SEIR modeling.
 
+    Parameters
+    ----------
+    fips: str
+        County fips code.
+    N_samples: int
+        Integer number of samples to generate.
+    t_list: array-like
+        Array of times to integrate against.
+    I_initial: int
+        Initial infected case count to consider.
+    infected_to_case_count_ratio: float
+        Multiplier on the ratio of tested cases vs untested cases at the
+        time of the simulation start. Note that asymptomatic cases are
+        already modeled.
+    suppression_policy: callable(t): pyseir.model.suppression_policy
+        Suppression policy to apply.
+    """
     def __init__(self, fips, N_samples, t_list,
                  I_initial=5, infected_to_case_count_ratio=1,
                  suppression_policy=None):
-        """
-        Generate ensembles of parameters for SEIR modeling.
 
-        Parameters
-        ----------
-        fips: str
-            County fips code.
-        N_samples: int
-            Integer number of samples to generate.
-        t_list: array-like
-            Array of times to integrate against.
-        I_initial: int
-            Initial infected case count to consider.
-        infected_to_case_count_ratio: float
-            Multiplier on the ratio of tested cases vs untested cases at the
-            time of the simulation start. Note that asymptomatic cases are
-            already modeled.
-        suppression_policy: callable(t): pyseir.model.suppression_policy
-            Suppression policy to apply.
-        """
         self.fips = fips
         self.N_samples = N_samples
         self.I_initial = I_initial

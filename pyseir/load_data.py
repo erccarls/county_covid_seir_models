@@ -174,7 +174,7 @@ def load_ensemble_results(fips):
     """
     county_metadata = load_county_metadata().set_index('fips')
     state, county = county_metadata.loc[fips]['state'], county_metadata.loc[fips]['county']
-    path = os.path.join(OUTPUT_DIR, state, f"{state}__{county}__{fips}__ensemble_projections.json")
+    path = os.path.join(OUTPUT_DIR, state, 'data', f"{state}__{county}__{fips}__ensemble_projections.json")
     with open(path) as f:
         fit_results = json.load(f)
     return fit_results
@@ -222,26 +222,6 @@ def load_mobility_data_m50_index():
         in_memory_cache = pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl')).set_index('fips')
 
     return in_memory_cache.copy()
-
-
-def load_t0(fips):
-    """
-    Load the simulation start time by county.
-
-    Parameters
-    ----------
-    fips: str
-        County FIPS
-
-    Returns
-    -------
-    : datetime
-        t0(C=5) cases.
-    """
-    county_metadata = load_county_metadata().set_index('fips')
-    state = county_metadata.loc[fips]['state']
-    fit_results = os.path.join(OUTPUT_DIR, state, f'summary__{state}_imputed_start_times.pkl')
-    return datetime.fromtimestamp(pd.read_pickle(fit_results).set_index('fips').loc[fips]['t0_date'].timestamp())
 
 
 def cache_all_data():

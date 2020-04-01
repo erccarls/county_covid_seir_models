@@ -47,7 +47,7 @@ class EnsembleRunner:
             'fips': fips,
             'N_samples': N_samples,
             'n_years': n_years,
-            't0': fit_results.get_t0(fips),
+            't0': fit_results.load_t0(fips),
             'population': county_metadata['total_population'],
             'population_density': county_metadata['population_density'],
             'state': county_metadata['state'],
@@ -55,11 +55,14 @@ class EnsembleRunner:
         }
 
         self.all_outputs = {}
-        self.output_file_prefix = os.path.join(
-            OUTPUT_DIR,
-            self.summary['state'],
-            f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections")
-        self.report = PDFReportBase(filename=self.output_file_prefix + '.pdf')
+        self.output_file_report = os.path.join(
+            OUTPUT_DIR, self.summary['state'], 'reports',
+            f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.pdf")
+        self.output_file_data = os.path.join(
+            OUTPUT_DIR, self.summary['state'], 'data',
+            f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.json")
+
+        self.report = PDFReportBase(filename=self.output_file_report)
 
         self.report.write_text_page(self.summary,
                                     title=f'PySEIR COVID19 Estimates\n{self.summary["county"]} County, {self.summary["state"]}',
@@ -107,10 +110,7 @@ class EnsembleRunner:
             self.generate_output(model_ensemble, suppression_policy)
         self.report.close()
 
-        # Write out the model results to json
-        model_output_filename = os.path.join(OUTPUT_DIR, self.summary['state'],
-                               f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.json")
-        with open(model_output_filename, 'w') as f:
+        with open(self.output_file_data, 'w') as f:
             json.dump(self.all_outputs, f)
 
     def _plot_dates(self, log=True):

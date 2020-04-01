@@ -12,7 +12,6 @@ from pyseir import load_data
 from pyseir import OUTPUT_DIR
 
 
-
 class InitialConditionsFitter:
 
     def __init__(self, fips, t0_case_count=4, start_days_before_t0=2,
@@ -167,7 +166,10 @@ def generate_start_times_for_state(state):
     metadata = load_data.load_county_metadata()
     state_dir = os.path.join(OUTPUT_DIR, state)
     os.makedirs(state_dir, exist_ok=True)
-    print(state.capitalize())
+    os.makedirs(os.path.join(state_dir, 'reports'), exist_ok=True)
+    os.makedirs(os.path.join(state_dir, 'data'), exist_ok=True)
+
+    print('Imputing start times for', state.capitalize())
     counties = metadata[metadata['state'].str.lower() == state.lower()].fips
     if len(counties) == 0:
         raise ValueError(f'No entries for state {state}.')
@@ -185,7 +187,7 @@ def generate_start_times_for_state(state):
 
             fitter.fit()
             fitter.plot_fit()
-            plt.savefig(os.path.join(state_dir, f'{fitter.state}__{fitter.county}__{fitter.fips}__t0_fit.png'), bbox_inches='tight')
+            plt.savefig(os.path.join(state_dir, 'reports', f'{fitter.state}__{fitter.county}__{fitter.fips}__t0_fit.pdf'), bbox_inches='tight')
             plt.close()
             fips_to_fit_map[fips] = fitter.fit_summary
 
@@ -201,8 +203,6 @@ def generate_start_times_for_state(state):
     county_fits = pd.DataFrame.from_dict(fips_to_fit_map, orient='index').reset_index().rename({'index': 'fips'}, axis=1)
     merged = county_fits.merge(metadata, on='fips')
     merged['days_from_2020_01_01'] = (merged.t0_date - datetime.fromisoformat('2020-01-01')).dt.days
-
-
 
     samples_with_data = merged['days_from_2020_01_01'].notnull()
     samples_with_no_data = merged['days_from_2020_01_01'].isnull()
@@ -228,7 +228,7 @@ def generate_start_times_for_state(state):
     merged.loc[samples_with_no_data, 'imputed_start_time'] = True
     merged.loc[samples_with_data, 'imputed_start_time'] = False
     merged.loc[samples_with_data, 'doubling_rate_days'] = np.log(2) * merged['model_params'][samples_with_data].apply(lambda x: x['scale'])
-    merged.to_pickle(os.path.join(state_dir, f'summary__{fitter.state}_imputed_start_times.pkl'))
+    merged.to_pickle(os.path.join(state_dir, 'data', f'summary__{fitter.state}_imputed_start_times.pkl'))
 
     # Plot population density
     plt.figure(figsize=(14, 4))
@@ -237,7 +237,7 @@ def generate_start_times_for_state(state):
         plt.title(state)
         sns.jointplot(x=np.log10(merged[x]), y='days_from_2020_01_01', data=merged, kind='reg', height=5)
         plt.xlabel('log10 Population Density')
-    plt.savefig(os.path.join(state_dir,f'summary__{fitter.state}__population_density.png'), bbox_inches='tight')
+    plt.savefig(os.path.join(state_dir, 'reports', f'summary__{fitter.state}__population_density.pdf'), bbox_inches='tight')
     plt.close()
 
     # Plot Doubling Rates by distance
@@ -246,7 +246,7 @@ def generate_start_times_for_state(state):
     plt.xlabel('Log10 Population Density', fontsize=16)
     plt.ylabel('Doubling Time [Days]', fontsize=16)
     plt.grid()
-    plt.savefig(os.path.join(state_dir, f'summary__{fitter.state}__doubling_time.png'), bbox_inches='tight')
+    plt.savefig(os.path.join(state_dir, 'reports', f'summary__{fitter.state}__doubling_time.pdf'), bbox_inches='tight')
     plt.close()
 
 
