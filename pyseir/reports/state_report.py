@@ -123,7 +123,10 @@ class StateReport:
                     up_lim = plt.xlim()[1]
                     for i, (capacity, peak_value) in enumerate(zip(capacities, peak_values)):
                         if np.isnan(capacity) or capacity == 0:
-                            plt.text(up_lim*1.3, i-.5, f'UNKNOWN CAPACITY: %i NEEDED' % peak_value, color='r')
+                            try:
+                                plt.text(up_lim * 1.3, i - .5, f'UNKNOWN CAPACITY: %s NEEDED' % int(peak_value), color='r')
+                            except ValueError:
+                                print('Error estimating peak. NaN')
                         else:
                             plt.text(up_lim*1.3, i-.5, f'Surge {peak_value / capacity * 100:.0f}%: {peak_value - capacity:.0f} Needed', color='r')
 

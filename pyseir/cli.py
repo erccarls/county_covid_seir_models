@@ -47,6 +47,8 @@ def _generate_state_reports(state=None):
 
 def _run_all(state=None):
     exceptions = []
+    cache_all_data()
+
     if state:
         _impute_start_dates(state.title())
         _run_ensembles(state.title())
