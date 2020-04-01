@@ -15,8 +15,8 @@ dependencies:
 - matplotlib
 - pip
 - iminuit
-- us
 - fastparquet
 - pip:
   - boto3
   - click
+  - us
