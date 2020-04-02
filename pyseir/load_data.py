@@ -2,6 +2,8 @@ import os
 import pandas as pd
 import numpy as np
 import urllib.request
+import requests
+import re
 import io
 import zipfile
 import json
@@ -135,6 +137,29 @@ def cache_mobility_data():
     df__m50_index__final.to_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl'))
 
 
+def cache_public_implementations_data():
+    """
+    Pulled from https://github.com/JieYingWu/COVID-19_US_County-level_Summaries
+    """
+    print('Downloading public implementations data')
+    url = 'https://raw.githubusercontent.com/JieYingWu/COVID-19_US_County-level_Summaries/master/raw_data/national/public_implementations_fips.csv'
+
+    data = requests.get(url, verify=False).content.decode('utf-8')
+    data = re.sub(r',(\d+)-(\w+)', r',\1-\2-2020', data)  # NOTE: This assumes the year 2020
+
+    date_cols = [
+        'stay at home',
+        '>50 gatherings',
+        '>500 gatherings',
+        'public schools',
+        'restaurant dine-in',
+        'entertainment/gym',
+        'Federal guidelines',
+        'foreign travel ban']
+    df = pd.read_csv(io.StringIO(data), parse_dates=date_cols)
+    df.to_pickle(os.path.join(DATA_DIR, 'public_implementations_data.pkl'))
+
+
 def load_county_case_data():
     """
     Return county level case data. The following columns:
@@ -161,7 +186,7 @@ def load_county_metadata():
 
 def load_ensemble_results(fips):
     """
-    Retreive
+    Retrieve
 
     Parameters
     ----------
@@ -224,6 +249,17 @@ def load_mobility_data_m50_index():
     return in_memory_cache.copy()
 
 
+def load_public_implementations_data():
+    """
+    Return public implementations data
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'public_implementations_data.pkl'))
+
+
 def cache_all_data():
     """
     Download all datasets locally.
@@ -231,6 +267,7 @@ def cache_all_data():
     cache_county_case_data()
     cache_hospital_beds()
     cache_mobility_data()
+    cache_public_implementations_data()
 
 
 if __name__ == '__main__':
