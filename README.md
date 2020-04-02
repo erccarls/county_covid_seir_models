@@ -30,7 +30,7 @@ Change to into the county_covid_seir_models directory
 `pip install -e .`
 
 
-## Download Data Locally
+# Running Models
+`pyseir run-all --state=California`
 
-The following will cache data for local use.
-`pyseir download-data`
+This will take a few minutes. Then check the `output/` folder for results.
