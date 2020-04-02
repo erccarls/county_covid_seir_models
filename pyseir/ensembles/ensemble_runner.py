@@ -12,7 +12,7 @@ from pyseir.parameters.parameter_ensemble_generator import ParameterEnsembleGene
 from pyseir.models.suppression_policies import generate_triggered_suppression_model
 from pyseir.reports.pdf_report_base import PDFReportBase
 from pyseir import OUTPUT_DIR
-from pyseir.load_data import load_county_metadata
+from pyseir.load_data import load_county_metadata, load_county_case_data
 from pyseir.inference import fit_results
 from pyseir.reports.names import compartment_to_name_map
 
@@ -35,8 +35,8 @@ class EnsembleRunner:
     """
     output_percentiles = [5, 32, 50, 68, 95]
 
-    def __init__(self, fips, n_years=3, N_samples=250,
-                 suppression_policy=(0.35, 0.5, 0.70), skip_plots=False):
+    def __init__(self, fips, n_years=2, N_samples=250,
+                 suppression_policy=(0.35, 0.5, 0.75, 1), skip_plots=False):
         self.t_list = np.linspace(0, 365 * n_years, 365 * n_years)
         self.skip_plots = skip_plots
         county_metadata = load_county_metadata().set_index('fips').loc[fips].to_dict()
@@ -53,6 +53,9 @@ class EnsembleRunner:
             'state': county_metadata['state'],
             'county': county_metadata['county']
         }
+
+        _county_case_data = load_county_case_data()
+        self.county_case_data = _county_case_data[_county_case_data['fips'] == fips]
 
         self.all_outputs = {}
         self.output_file_report = os.path.join(
@@ -164,17 +167,39 @@ class EnsembleRunner:
             for percentile in self.output_percentiles:
                 outputs[compartment]['ci_%i' % percentile] = np.percentile(value_stack, percentile, axis=0).tolist()
 
+            # When is surge capacity reached?
+            capacity_attr = {
+                'HGen': 'beds_general',
+                'HICU': 'beds_ICU',
+                'HVent': 'ventilators'
+            }
+            if compartment in capacity_attr:
+                outputs[compartment]['surge_start'] = []
+                outputs[compartment]['surge_end'] = []
+                for m in model_ensemble:
+                    # Find the first t where overcapacity occurs
+
+                    surge_start_idx = np.argwhere(m.results[compartment] > getattr(m, capacity_attr[compartment]))
+                    outputs[compartment]['surge_start'].append(
+                        outputs['t_list'][surge_start_idx[0][0]] if len(surge_start_idx) > 0 else float('NaN'))
+
+                    # Reverse the t-list and capacity and do the same.
+                    surge_end_idx = np.argwhere(m.results[compartment][::-1] > getattr(m, capacity_attr[compartment]))
+                    outputs[compartment]['surge_end'].append(
+                        outputs['t_list'][::-1][surge_end_idx[0][0]] if len(surge_end_idx) > 0 else float('NaN'))
+
             # Compute the peak times for each compartment by finding the arg
             # max, and selecting the corresponding time.
             peak_indices = value_stack.argmax(axis=1)
 
             # TODO Convert to dates?
             outputs[compartment]['peak_times'] = [outputs['t_list'][peak_index] for peak_index in peak_indices]
-            values_at_peak_index = [model[idx] for model, idx in zip(value_stack, peak_indices)]
+            values_at_peak_index = [val[idx] for val, idx in zip(value_stack, peak_indices)]
             outputs[compartment]['peak_values'] = values_at_peak_index
             for percentile in self.output_percentiles:
                 outputs[compartment]['peak_value_ci%i' % percentile] = np.percentile(values_at_peak_index, percentile).tolist()
                 outputs[compartment]['peak_time_ci%i' % percentile] = np.percentile(outputs[compartment]['peak_times'], percentile).tolist()
+            outputs[compartment]['peak_value_mean'] = np.mean(values_at_peak_index).tolist()
 
         outputs['HICU']['capacity'] = [m.beds_ICU for m in model_ensemble]
         outputs['HVent']['capacity'] = [m.ventilators for m in model_ensemble]
@@ -200,17 +225,17 @@ class EnsembleRunner:
         fig.suptitle(f'PySEIR COVID19 Estimates: {self.summary["county"]} County, {self.summary["state"]}. '
                      f'\nSupression Policy={suppression_policy} (1=No Suppression)' , fontsize=16)
         for i_plot, compartment in enumerate(compartments):
-            plt.subplot(4, 5, i_plot + 1)
+            plt.subplot(5, 5, i_plot + 1)
             plt.plot(outputs['t_list'], outputs[compartment]['ci_50'], color='steelblue',
                      linewidth=3, label=compartment_to_name_map[compartment])
             plt.fill_between(outputs['t_list'], outputs[compartment]['ci_32'], outputs[compartment]['ci_68'], alpha=.3, color='steelblue')
             plt.fill_between(outputs['t_list'], outputs[compartment]['ci_5'], outputs[compartment]['ci_95'], alpha=.3, color='steelblue')
             plt.yscale('log')
-            plt.ylim(1e1)
+            plt.ylim(1e0)
             plt.xlim(0, 360)
             plt.grid(True, which='both', alpha=0.3)
 
-            plt.xlabel('Days Since 5 Cases')
+            plt.xlabel('Days Since Case 0')
             if compartment == 'HICU':
                 percentiles = np.percentile([m.beds_ICU for m in model_ensemble], (5, 32, 50, 68, 95))
                 plt.hlines(percentiles[2], *plt.xlim(), label='ICU Capacity', color='darkseagreen')
@@ -226,20 +251,40 @@ class EnsembleRunner:
                 plt.hlines(percentiles[2], *plt.xlim(), label='Ventilator Capacity', color='darkseagreen')
                 plt.hlines([percentiles[0], percentiles[4]], *plt.xlim(), color='darkseagreen', linestyles='-.', alpha=.4)
                 plt.hlines([percentiles[1], percentiles[3]], *plt.xlim(), color='darkseagreen', linestyles='--', alpha=.2)
+
+            # Plot data
+            if compartment in ['D', 'total_deaths'] and len(self.county_case_data) > 0:
+                plt.errorbar((self.county_case_data.date - self.summary['t0']).dt.days,
+                         self.county_case_data.deaths, yerr=np.sqrt(self.county_case_data.deaths),
+                         linestyle='-', label='Deaths Observed', marker='o', markersize=4)
+            if compartment in ['I'] and len(self.county_case_data) > 0:
+                plt.errorbar((self.county_case_data.date - self.summary['t0']).dt.days,
+                         self.county_case_data.cases, yerr=np.sqrt(self.county_case_data.cases  ), linestyle='-',
+                         label='Cases Observed', marker='o', markersize=4, color='firebrick')
+
             plt.legend()
             self._plot_dates(log=False)
+
+
 
         # -----------------------------
         # Plot peak Timing
         # -----------------------------
         color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color'] + list('bgrcmyk')
-        plt.subplot(4, 5, len(compartments) + 1)
-        for i, compartment in enumerate(['E', 'A', 'I', 'HGen', 'HICU', 'HVent']):
+        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color'] + list('bgrcmyk')
+
+        marker_cycle = ['o', 's', '+', 'd', 'o'] * 4
+
+
+        plt.subplot(5, 5, len(compartments) + 1)
+
+        for i, compartment in enumerate(['E', 'A', 'I', 'HGen', 'HICU', 'HVent', 'admissions_per_day',
+                                         'direct_deaths_per_day', 'total_deaths_per_day']):
             median = outputs[compartment]['peak_time_ci50']
             ci5, ci95 = outputs[compartment]['peak_time_ci5'], outputs[compartment]['peak_time_ci95']
             ci32, ci68 = outputs[compartment]['peak_time_ci32'], outputs[compartment]['peak_time_ci68']
-            plt.scatter(median, i, label=compartment_to_name_map[compartment], c=color_cycle[i])
-            plt.fill_betweenx([i-.3, i+.3], [ci32, ci32], [ci68, ci68], alpha=.3, color=color_cycle[i])
+            plt.scatter(median, i, label=compartment_to_name_map[compartment], c=color_cycle[i], marker=marker_cycle[i])
+            plt.fill_betweenx([i-.3, i+.3], [ci32, ci32], [ci68, ci68], alpha=.3, color=color_cycle[i],)
             plt.fill_betweenx([i-.1, i+.1], [ci5, ci5], [ci95, ci95], alpha=.3, color=color_cycle[i])
         self._plot_dates(log=False)
         plt.legend(loc=(1.05, 0.0))
@@ -250,20 +295,22 @@ class EnsembleRunner:
         # -----------------------------
         # Plot peak capacity
         # -----------------------------
-        plt.subplot(4, 5, len(compartments) + 3)
-        for i, compartment in enumerate(['E', 'A', 'I', 'R', 'HGen', 'HICU', 'HVent', 'D', 'total_deaths',
-                                         'HGen_cumulative', 'HICU_cumulative', 'HVent_cumulative']):
+        plt.subplot(5, 5, len(compartments) + 3)
+        for i, compartment in enumerate(['E', 'A', 'I', 'R', 'D', 'total_deaths',
+                                         'direct_deaths_per_day', 'total_deaths_per_day', 'HGen', 'HICU', 'HVent',
+                                         'HGen_cumulative', 'HICU_cumulative', 'HVent_cumulative', 'admissions_per_day']):
             median = outputs[compartment]['peak_value_ci50']
             ci5, ci95 = outputs[compartment]['peak_value_ci5'], outputs[compartment]['peak_value_ci95']
             ci32, ci68 = outputs[compartment]['peak_value_ci32'], outputs[compartment]['peak_value_ci68']
-            plt.scatter(median, i, label=compartment_to_name_map[compartment], c=color_cycle[i])
+            plt.scatter(median, i, label=compartment_to_name_map[compartment], c=color_cycle[i], marker=marker_cycle[i])
             plt.fill_betweenx([i-.3, i+.3], [ci32, ci32], [ci68, ci68], alpha=.3, color=color_cycle[i])
             plt.fill_betweenx([i-.1, i+.1], [ci5, ci5], [ci95, ci95], alpha=.3, color=color_cycle[i])
             plt.xscale('log')
+
         plt.vlines(self.summary['population'], *plt.ylim(), label='Entire Population', alpha=0.5, color='g')
         plt.vlines(self.summary['population'] * 0.65, *plt.ylim(), label='Approx. Herd Immunity',
                    alpha=0.5, color='purple', linestyles='--', linewidths=2)
-        plt.legend(loc=(1.05, 0.0))
+        plt.legend(loc=(.85, 0.0))
         plt.grid(True, which='both', alpha=0.3)
         plt.xlabel('Value at Peak')
         plt.yticks([])

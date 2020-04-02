@@ -14,5 +14,8 @@ compartment_to_name_map = {
         'total_deaths': 'Total Deaths (All Cause)',
         'HGen_cumulative': 'Cumulative Hospitalizations',
         'HICU_cumulative': 'Cumulative ICU',
-        'HVent_cumulative': 'Cumulative Ventilators'
+        'HVent_cumulative': 'Cumulative Ventilators',
+        'direct_deaths_per_day': 'Direct Deaths Per Day',
+        'total_deaths_per_day': 'Total Deaths Per Day (All Cause)',
+        'admissions_per_day': 'Total Admissions Per Day'
     }

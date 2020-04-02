@@ -2,7 +2,7 @@ import numpy as np
 from scipy.interpolate import interp1d
 
 
-def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduction=0.25):
+def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduction=0.25, start_on=0):
     """
     Generates a contact reduction model which switches a binary supression
     policy on and off.
@@ -14,6 +14,7 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
         Days of reduced contact rate.
     open_days:
         Days of high contact rate.
+    start_on
 
     Returns
     -------
@@ -22,7 +23,7 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
     """
 
     state = 'lockdown'
-    state_switch = lockdown_days
+    state_switch = start_on + lockdown_days
     rho = []
 
     if lockdown_days == 0:
@@ -31,6 +32,7 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
         rho = np.ones(len(t_list)) * reduction
     else:
         for t in t_list:
+
             if t >= state_switch:
                 if state == 'open':
                     state = 'lockdown'
@@ -42,7 +44,8 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
                 rho.append(1)
             elif state == 'lockdown':
                 rho.append(reduction)
-
+    rho = np.array(rho)
+    rho[t_list < start_on] = 1
     return interp1d(t_list, rho, fill_value='extrapolate')
 
 
