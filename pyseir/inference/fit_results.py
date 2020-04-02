@@ -17,7 +17,7 @@ def load_t0(fips):
     Returns
     -------
     : datetime
-        t0(C=5) cases.
+        t0(C=1) cases.
     """
     county_metadata = load_county_metadata().set_index('fips')
     state = county_metadata.loc[fips]['state']

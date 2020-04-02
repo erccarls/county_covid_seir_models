@@ -179,11 +179,10 @@ def generate_start_times_for_state(state):
     for fips in counties.values:
         try:
             fitter = InitialConditionsFitter(
-                fips=fips, # SF County
-                t0_case_count=5,
+                fips=fips,
+                t0_case_count=1,
                 start_days_before_t0=0,
-                start_days_after_t0=1000
-            )
+                start_days_after_t0=1000)
 
             fitter.fit()
             fitter.plot_fit()

@@ -24,7 +24,7 @@ class ParameterEnsembleGenerator:
         Suppression policy to apply.
     """
     def __init__(self, fips, N_samples, t_list,
-                 I_initial=5, infected_to_case_count_ratio=1,
+                 I_initial=1, infected_to_case_count_ratio=1,
                  suppression_policy=None):
 
         self.fips = fips
@@ -65,7 +65,8 @@ class ParameterEnsembleGenerator:
         for _ in range(self.N_samples):
 
             # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
-            hospitalization_rate_general = np.random.normal(loc=.19, scale=0.04)
+            # TODO: 10% is being used by CA group.  CDC suggests 20%..
+            hospitalization_rate_general = np.random.normal(loc=.10, scale=0.03)
             fraction_asymptomatic = np.random.uniform(0.4, .6)
             # https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Europe-estimates-and-NPI-impact-30-03-2020.pdf
             parameter_sets.append(dict(
@@ -83,19 +84,22 @@ class ParameterEnsembleGenerator:
                 R0=np.random.uniform(low=3, high=4.5),            # Imperial College
                 hospitalization_rate_general=hospitalization_rate_general,
                 # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
+                # TODO: DJ
                 hospitalization_rate_icu=max(np.random.normal(loc=.29, scale=0.03) * hospitalization_rate_general, 0),
                 # http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
+                # TODO Check this.
                 fraction_icu_requiring_ventilator=max(np.random.normal(loc=0.54, scale=0.2), 0),
                 sigma=1 / np.random.normal(loc=5.1, scale=0.86),  # Imperial college
                 kappa=1,
                 gamma=fraction_asymptomatic,
                 # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
+                # TODO: CHECK THIS
                 symptoms_to_hospital_days=np.random.normal(loc=6.5, scale=1.5),
                 symptoms_to_mortality_days=np.random.normal(loc=18.8, scale=.45), # Imperial College
                 hospitalization_length_of_stay_general=np.random.normal(loc=7, scale=2),
                 hospitalization_length_of_stay_icu=np.random.normal(loc=16, scale=3),
                 hospitalization_length_of_stay_icu_and_ventilator=np.random.normal(loc=17, scale=3),
-                mortality_rate=np.random.normal(loc=0.0075, scale=0.0025),
+                mortality_rate=np.random.normal(loc=0.01, scale=0.0025),
                 # if you assume the ARDS population is the group that would die
                 # w/o ventilation, this would suggest a 20-42% mortality rate
                 # among general hospitalized patients w/o access to ventilators: “Among
