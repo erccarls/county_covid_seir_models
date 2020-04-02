@@ -192,7 +192,6 @@ class EnsembleRunner:
             # max, and selecting the corresponding time.
             peak_indices = value_stack.argmax(axis=1)
 
-            # TODO Convert to dates?
             outputs[compartment]['peak_times'] = [outputs['t_list'][peak_index] for peak_index in peak_indices]
             values_at_peak_index = [val[idx] for val, idx in zip(value_stack, peak_indices)]
             outputs[compartment]['peak_values'] = values_at_peak_index

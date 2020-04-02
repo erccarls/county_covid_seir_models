@@ -67,6 +67,7 @@ class ParameterEnsembleGenerator:
             # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
             # TODO: 10% is being used by CA group.  CDC suggests 20%..
             hospitalization_rate_general = np.random.normal(loc=.10, scale=0.03)
+
             fraction_asymptomatic = np.random.uniform(0.4, .6)
             # https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Europe-estimates-and-NPI-impact-30-03-2020.pdf
             parameter_sets.append(dict(
@@ -84,7 +85,6 @@ class ParameterEnsembleGenerator:
                 R0=np.random.uniform(low=3, high=4.5),            # Imperial College
                 hospitalization_rate_general=hospitalization_rate_general,
                 # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
-                # TODO: DJ
                 hospitalization_rate_icu=max(np.random.normal(loc=.29, scale=0.03) * hospitalization_rate_general, 0),
                 # http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
                 # TODO Check this.
@@ -102,10 +102,10 @@ class ParameterEnsembleGenerator:
                 mortality_rate=np.random.normal(loc=0.01, scale=0.0025),
                 # if you assume the ARDS population is the group that would die
                 # w/o ventilation, this would suggest a 20-42% mortality rate
-                # among general hospitalized patients w/o access to ventilators: “Among
-                # all patients, a range of 3% to 17% developed ARDS compared to
-                # a range of 20% to 42% for hospitalized patients and 67% to 85%
-                # for patients admitted to the ICU.1,4-6,8,11”
+                # among general hospitalized patients w/o access to ventilators:
+                # “Among all patients, a range of 3% to 17% developed ARDS
+                # compared to a range of 20% to 42% for hospitalized patients
+                # and 67% to 85% for patients admitted to the ICU.1,4-6,8,11”
                 mortality_rate_no_general_beds=np.random.uniform(low=0.2, high=0.42),
                 mortality_rate_no_ICU_beds=np.random.uniform(low=0.5, high=0.75),
                 mortality_rate_no_ventilator=1,

@@ -14,7 +14,7 @@ from pyseir import OUTPUT_DIR
 
 class InitialConditionsFitter:
 
-    def __init__(self, fips, t0_case_count=4, start_days_before_t0=2,
+    def __init__(self, fips, t0_case_count=1, start_days_before_t0=2,
                  start_days_after_t0=1000, min_days_required=5):
         """
         Fit an exponential model to observations assuming a binomial error on

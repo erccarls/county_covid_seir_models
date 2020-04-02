@@ -156,7 +156,9 @@ def cache_public_implementations_data():
         'entertainment/gym',
         'Federal guidelines',
         'foreign travel ban']
-    df = pd.read_csv(io.StringIO(data), parse_dates=date_cols)
+    df = pd.read_csv(io.StringIO(data), parse_dates=date_cols, dtype='str').drop(['Unnamed: 1', 'Unnamed: 2'], axis=1)
+    df.columns = [col.replace('>', '').replace(' ', '_').replace('/', '_').lower() for col in df.columns]
+    df.fips = df.fips.apply(lambda x: x.zfill(5))
     df.to_pickle(os.path.join(DATA_DIR, 'public_implementations_data.pkl'))
 
 
