@@ -33,4 +33,6 @@ Change to into the county_covid_seir_models directory
 # Running Models
 `pyseir run-all --state=California`
 
-This will take a few minutes. Then check the `output/` folder for results.
+This will take a few minutes to download today's data, run inference and model
+ensembles, and generate the output. Then check the `output/` folder for results.
+
