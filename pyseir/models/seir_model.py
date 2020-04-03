@@ -7,6 +7,7 @@ class SEIRModel:
 
     def __init__(self,
                  N,
+                 t0,
                  t_list,
                  suppression_policy,
                  A_initial=50,
@@ -18,11 +19,13 @@ class SEIRModel:
                  HICU_initial=0,
                  HICUVent_initial=0,
                  D_initial=0,
+                 D_report_initial=0,
                  R0=2.5,
                  sigma=1 / 5.2,
                  delta=1/2.5,
                  kappa=1,
                  gamma=0.5,
+                 death_report_delay=5,
                  hospitalization_rate_general=0.025,
                  hospitalization_rate_icu=0.025,
                  fraction_icu_requiring_ventilator=0.75, # TBD Tuned...
@@ -207,6 +210,7 @@ class SEIRModel:
         self.E_initial = E_initial
         self.D_initial = D_initial
         self.T_initial = T_initial
+        self.D_report_initial = D_report_initial
 
         self.HGen_initial = HGen_initial
         self.HICU_initial = HICU_initial
@@ -226,6 +230,7 @@ class SEIRModel:
         self.delta = delta
         self.beta = self.R0 * self.delta
 
+        self.death_report_delay = death_report_delay
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_days = symptoms_to_hospital_days
         self.symptoms_to_mortality_days = symptoms_to_mortality_days
@@ -253,14 +258,14 @@ class SEIRModel:
         self.mortality_rate_no_ventilator = mortality_rate_no_ventilator
 
         # List of times to integrate.
-        self.t_list = t_list
+        self.t_list = t_list + t0
         self.results = None
 
     def _time_step(self, y, t):
         """
         One integral moment.
         """
-        S, E, A, I, T, R, HNonICU, HICU, HICUVent, D = y
+        S, E, A, I, T, R, HNonICU, HICU, HICUVent, D, D_report = y
 
         # TODO: County-by-county affinity matrix terms can be used to describe
         # transmission network effects. ( also known as Multi-Region SEIR)
@@ -323,7 +328,9 @@ class SEIRModel:
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
         dDdt = infected_and_dead  # Fraction that die.
-        return dSdt, dEdt, dAdt, dIdt, dTdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
+
+        dD_reportdt = I * self.mortality_rate / (self.symptoms_to_mortality_days + self.death_report_delay)
+        return dSdt, dEdt, dAdt, dIdt, dTdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt, dD_reportdt
 
     def run(self):
         """
@@ -351,11 +358,11 @@ class SEIRModel:
         """
         # Initial conditions vector
         y0 = self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.T_initial, self.R_initial,\
-             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
+             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial, self.D_report_initial
 
         # Integrate the SIR equations over the time grid, t.
         result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
-        S, E, A, I, T, R, HGen, HICU, HICUVent, D = result_time_series.T
+        S, E, A, I, T, R, HGen, HICU, HICUVent, D, D_report = result_time_series.T
 
         self.results = {
             't_list': self.t_list,
@@ -369,6 +376,7 @@ class SEIRModel:
             'HICU': HICU,
             'HVent': HICUVent,
             'D': D,
+            'D_report': D_report,
             # Here we assume that the number of person days above the saturation
             # divided by the mean length of stay approximates the number of
             # deaths from each source.
