@@ -15,6 +15,10 @@ dependencies:
 - matplotlib
 - pip
 - iminuit
+- fastparquet
 - pip:
   - boto3
   - click
+  - us
+  - xlsxwriter
+  - pymc3

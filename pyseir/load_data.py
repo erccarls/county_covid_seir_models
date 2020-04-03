@@ -2,9 +2,13 @@ import os
 import pandas as pd
 import numpy as np
 import urllib.request
+import requests
+import re
 import io
 import zipfile
 import json
+from datetime import datetime
+from pyseir import OUTPUT_DIR
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 
@@ -42,18 +46,9 @@ def load_zip_get_file(url, file, decoder='utf-8'):
 
 def cache_county_case_data():
     """
-    Cache county covid case data in #PYSEIR_HOME/data.
+    Cache county covid case data from NYT in #PYSEIR_HOME/data.
     """
     print('Downloading covid case data')
-    # Previous datasets from coronadatascraper
-    # county_fips_map = pd.read_csv(os.path.join(DATA_DIR, 'county_state_fips.csv'), dtype='str', low_memory=False)
-    # case_data = pd.read_csv('https://coronadatascraper.com/timeseries-tidy.csv', low_memory=False)
-    #
-    # fips_merged = case_data.merge(county_fips_map, left_on=('county', 'state'), right_on=('COUNTYNAME', 'STATE'))\
-    #           [['STCOUNTYFP', 'county', 'state', 'population', 'lat', 'long', 'date', 'type', 'value']]
-    #
-    # fips_merged.columns = [col.lower() for col in fips_merged.columns]
-
     # NYT dataset
     county_case_data = pd.read_csv('https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv', dtype='str')
     county_case_data['date'] = pd.to_datetime(county_case_data['date'])
@@ -61,7 +56,7 @@ def cache_county_case_data():
     county_case_data = county_case_data[county_case_data['fips'].notnull()]
     county_case_data.to_pickle(os.path.join(DATA_DIR, 'covid_case_timeseries.pkl'))
 
-
+#### Deprecated
 # def cache_county_metadata():
 #     """
 #     Cache 2019 census data including age distribution by state/county FIPS.
@@ -113,6 +108,60 @@ def cache_hospital_beds():
     df.to_pickle(os.path.join(DATA_DIR, 'icu_capacity.pkl'))
 
 
+def cache_mobility_data():
+    """
+    Pulled from https://github.com/descarteslabs/DL-COVID-19
+    """
+    print('Downloading mobility data.')
+    url = 'https://raw.githubusercontent.com/descarteslabs/DL-COVID-19/master/DL-us-mobility-daterow.csv'
+
+    dtypes_mapping = {
+        'country_code': str,
+        'admin_level': int,
+        'admin1': str,
+        'admin2': str,
+        'fips': str,
+        'samples': int,
+        'm50': float,
+        'm50_index': float}
+
+    df = pd.read_csv(filepath_or_buffer=url, parse_dates=['date'], dtype=dtypes_mapping)
+    df__m50 = df.query('admin_level == 2')[['fips', 'date', 'm50']]
+    df__m50_index = df.query('admin_level == 2')[['fips', 'date', 'm50_index']]
+    df__m50__final = df__m50.groupby('fips').agg(list).reset_index()
+    df__m50_index__final = df__m50_index.groupby('fips').agg(list).reset_index()
+    df__m50__final['m50'] = df__m50__final['m50'].apply(lambda x: np.array(x))
+    df__m50_index__final['m50_index'] = df__m50_index__final['m50_index'].apply(lambda x: np.array(x))
+
+    df__m50__final.to_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
+    df__m50_index__final.to_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl'))
+
+
+def cache_public_implementations_data():
+    """
+    Pulled from https://github.com/JieYingWu/COVID-19_US_County-level_Summaries
+    """
+    print('Downloading public implementations data')
+    url = 'https://raw.githubusercontent.com/JieYingWu/COVID-19_US_County-level_Summaries/master/raw_data/national/public_implementations_fips.csv'
+
+    data = requests.get(url, verify=False).content.decode('utf-8')
+    data = re.sub(r',(\d+)-(\w+)', r',\1-\2-2020', data)  # NOTE: This assumes the year 2020
+
+    date_cols = [
+        'stay at home',
+        '>50 gatherings',
+        '>500 gatherings',
+        'public schools',
+        'restaurant dine-in',
+        'entertainment/gym',
+        'Federal guidelines',
+        'foreign travel ban']
+    df = pd.read_csv(io.StringIO(data), parse_dates=date_cols, dtype='str').drop(['Unnamed: 1', 'Unnamed: 2'], axis=1)
+    df.columns = [col.replace('>', '').replace(' ', '_').replace('/', '_').lower() for col in df.columns]
+    df.fips = df.fips.apply(lambda x: x.zfill(5))
+    df.to_pickle(os.path.join(DATA_DIR, 'public_implementations_data.pkl'))
+
+
 def load_county_case_data():
     """
     Return county level case data. The following columns:
@@ -134,7 +183,28 @@ def load_county_metadata():
 
     """
     # return pd.read_pickle(os.path.join(DATA_DIR, 'covid_county_metadata.pkl'))
-    return pd.read_json('/Users/ecarlson/county_covid_seir_models/data/county_metadata.json')
+    return pd.read_json(os.path.join(DATA_DIR, 'county_metadata.json'), dtype={'fips': 'str'})
+
+
+def load_ensemble_results(fips):
+    """
+    Retrieve
+
+    Parameters
+    ----------
+    fips: str
+        County FIPS to load.
+
+    Returns
+    -------
+    ensemble_results: dict
+    """
+    county_metadata = load_county_metadata().set_index('fips')
+    state, county = county_metadata.loc[fips]['state'], county_metadata.loc[fips]['county']
+    path = os.path.join(OUTPUT_DIR, state, 'data', f"{state}__{county}__{fips}__ensemble_projections.json")
+    with open(path) as f:
+        fit_results = json.load(f)
+    return fit_results
 
 
 def load_hospital_data():
@@ -149,13 +219,57 @@ def load_hospital_data():
     return pd.read_pickle(os.path.join(DATA_DIR, 'icu_capacity.pkl'))
 
 
+def load_mobility_data_m50():
+    """
+    Return mobility data without normalization
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50.pkl'))
+
+
+# Ensembles need to access this 1e6 times and it makes 10ms simulations -> 100 ms otherwise.
+in_memory_cache = None
+def load_mobility_data_m50_index():
+    """
+    Return mobility data with normalization: per
+    https://github.com/descarteslabs/DL-COVID-19 normal m50 is defined during
+    2020-02-17 to 2020-03-07.
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    global in_memory_cache
+    if in_memory_cache is not None:
+        return in_memory_cache
+    else:
+        in_memory_cache = pd.read_pickle(os.path.join(DATA_DIR, 'mobility_data__m50_index.pkl')).set_index('fips')
+
+    return in_memory_cache.copy()
+
+
+def load_public_implementations_data():
+    """
+    Return public implementations data
+
+    Returns
+    -------
+    : pd.DataFrame
+    """
+    return pd.read_pickle(os.path.join(DATA_DIR, 'public_implementations_data.pkl'))
+
+
 def cache_all_data():
     """
     Download all datasets locally.
     """
     cache_county_case_data()
-    # cache_county_metadata()
     cache_hospital_beds()
+    cache_mobility_data()
+    cache_public_implementations_data()
 
 
 if __name__ == '__main__':

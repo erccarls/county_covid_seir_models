@@ -1,28 +1,49 @@
+from datetime import datetime, timedelta
+import pandas as pd
 import numpy as np
 from scipy.interpolate import interp1d
+from pyseir.load_data import load_public_implementations_data
+from pyseir.inference import fit_results
 
 
-def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduction=0.25):
+# Fig 4 of Imperial college.
+# https://www.imperial.ac.uk/media/imperial-college/medicine/sph/ide/gida-fellowships/Imperial-College-COVID19-Europe-estimates-and-NPI-impact-30-03-2020.pdf
+# These are intended to act indendently, as shown by a multivariate fit from Imp. College.  The exception is lockdown which supercedes everything.
+distancing_measure_suppression = {
+    'stay_at_home': .48,
+    '50_gatherings': .05,
+    '500_gatherings': .02,  # Made this one up since not examined. Assume it isn't very effective at county level, esp. relative to 50 gatherings
+    'self_isolation': 0.05, # This one is not included in the policies dataset , but is in the imperial college paper. Keep it around for now..
+    'public_schools': .18,  # Total social distancing was about
+    'entertainment_gym': 0.02,
+    'restaurant_dine-in': 0.03,
+    'federal_guidelines': 0.03 # Making this up as well. Probably not very effective relative to stay at home...
+}
+
+
+def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduction=0.25, start_on=0):
     """
     Generates a contact reduction model which switches a binary supression
     policy on and off.
 
     Parameters
     ----------
-    t_list:
+    t_list: array-like
+        List of times.
     lockdown_days: int
         Days of reduced contact rate.
     open_days:
         Days of high contact rate.
+    start_on: int
+        Start the lockdown fluctuation after X days.
 
     Returns
     -------
     suppression_model: callable
         suppression_model(t) returns the current suppression model at time t.
     """
-
     state = 'lockdown'
-    state_switch = lockdown_days
+    state_switch = start_on + lockdown_days
     rho = []
 
     if lockdown_days == 0:
@@ -31,6 +52,7 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
         rho = np.ones(len(t_list)) * reduction
     else:
         for t in t_list:
+
             if t >= state_switch:
                 if state == 'open':
                     state = 'lockdown'
@@ -42,6 +64,77 @@ def generate_triggered_suppression_model(t_list, lockdown_days, open_days, reduc
                 rho.append(1)
             elif state == 'lockdown':
                 rho.append(reduction)
+    rho = np.array(rho)
+    rho[t_list < start_on] = 1
+    return interp1d(t_list, rho, fill_value='extrapolate')
+
+
+def generate_empirical_distancing_policy(t_list, fips, future_suppression):
+    """
+    Produce a suppression policy based on Imperial College estimates of social
+    distancing programs combined with County level datasets about their
+    implementation.
+
+    Parameters
+    ----------
+    t_list: array-like
+        List of times to interpolate over.
+    fips: str
+        County fips to lookup interventions against.
+    future_suppression: float
+        The suppression level to apply in an ongoing basis after today, and
+        going backward as the lockdown / stay-at-home efficacy.
+
+    Returns
+    -------
+    suppression_model: callable
+        suppression_model(t) returns the current suppression model at time t.
+    """
+
+    t0 = fit_results.load_t0(fips)
+    rho = []
+
+    # Check for fips that don't match.
+    public_implementations = load_public_implementations_data().set_index('fips')
+
+    if fips not in public_implementations.index:
+        # Then assume 1.0 until today and then future_suppression going forward.
+        for t_step in t_list:
+            t_actual = t0 + timedelta(days=t_step)
+            if t_actual <= datetime.now():
+                rho.append(1.0)
+            else:
+                rho.append(future_suppression)
+    else:
+        policies = public_implementations.loc[fips].to_dict()
+        for t_step in t_list:
+            t_actual = t0 + timedelta(days=t_step)
+            rho_this_t = 1
+
+            # If this is a future date, assume lockdown continues.
+            if t_actual > datetime.utcnow():
+                rho.append(future_suppression)
+                continue
+
+            # If the policy was enacted on this timestep then activate it in addition to others.
+            # These measures are additive.
+            for independent_measure in ['public_schools', 'entertainment_gym', 'restaurant_dine-in', 'federal_guidelines']:
+
+                if not pd.isnull(policies[independent_measure]) and t_actual > \
+                        policies[independent_measure]:
+                    rho_this_t -= distancing_measure_suppression[
+                        independent_measure]
+
+            # Only take the max of these, since 500 doesn't matter if 50 is enacted.
+            if not pd.isnull(policies['50_gatherings']) and t_actual > policies['50_gatherings']:
+                rho_this_t -= distancing_measure_suppression['50_gatherings']
+            elif not pd.isnull(policies['500_gatherings']) and t_actual > policies['500_gatherings']:
+                rho_this_t -= distancing_measure_suppression['500_gatherings']
+
+            # If lockdown, then we don't care about any others, just set to future suppression.
+            if pd.isnull(policies['stay_at_home']) and t_actual > policies['stay_at_home']:
+                rho_this_t = future_suppression
+            rho.append(rho_this_t)
 
     return interp1d(t_list, rho, fill_value='extrapolate')
 

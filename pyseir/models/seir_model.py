@@ -9,15 +9,15 @@ class SEIRModel:
                  N,
                  t_list,
                  suppression_policy,
-                 A_initial=50,
-                 I_initial=50,
+                 A_initial=1,
+                 I_initial=1,
                  R_initial=0,
                  E_initial=0,
                  HGen_initial=0,
                  HICU_initial=0,
                  HICUVent_initial=0,
                  D_initial=0,
-                 R0=2.5,
+                 R0=3.75,
                  sigma=1 / 5.2,
                  kappa=1,
                  gamma=0.5,
@@ -255,8 +255,11 @@ class SEIRModel:
     def _time_step(self, y, t):
         """
         One integral moment.
+
+        y: array
+            S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
         """
-        S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
+        S, E, A, I, R, HNonICU, HICU, HICUVent, D, dHAdmissions_general, dHAdmissions_icu, dTotalInfections = y
 
         # TODO: County-by-county affinity matrix terms can be used to describe
         # transmission network effects. ( also known as Multi-Region SEIR)
@@ -303,6 +306,12 @@ class SEIRModel:
         dHNonICU_dt = infected_and_in_hospital_general - recovered_after_hospital_general
         dHICU_dt = infected_and_in_hospital_icu - recovered_after_hospital_icu
 
+        # Tracking categories...
+        dTotalInfections = exposed_and_symptomatic + exposed_and_asymptomatic
+        dHAdmissions_general = infected_and_in_hospital_general
+        dHAdmissions_ICU = infected_and_in_hospital_icu  # Ventilators also count as ICU beds.
+
+
         # This compartment is for tracking ventillator count. The beds are accounted for in the ICU cases.
         dHICUVent_dt = infected_and_in_hospital_icu * self.fraction_icu_requiring_ventilator \
                        - HICUVent / self.hospitalization_length_of_stay_icu_and_ventilator
@@ -317,7 +326,7 @@ class SEIRModel:
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
         dDdt = infected_and_dead  # Fraction that die.
-        return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt
+        return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt, dHAdmissions_general, dHAdmissions_ICU, dTotalInfections
 
     def run(self):
         """
@@ -343,14 +352,17 @@ class SEIRModel:
         }
         """
         # Initial conditions vector
+        HAdmissions_general, HAdmissions_ICU, TotalAllInfections = 0, 0, 0
         y0 = self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.R_initial,\
-             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial
+             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial, \
+             HAdmissions_general, HAdmissions_ICU, TotalAllInfections
 
         # Integrate the SIR equations over the time grid, t.
         result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
-        S, E, A, I, R, HGen, HICU, HICUVent, D = result_time_series.T
+        S, E, A, I, R, HGen, HICU, HICUVent, D, HAdmissions_general, HAdmissions_ICU, TotalAllInfections = result_time_series.T
 
-
+        # derivatives to get e.g. deaths per day or admissions per day.
+        total_hosp = np.array(HGen + HICU + HICUVent)
 
         self.results = {
             't_list': self.t_list,
@@ -363,6 +375,7 @@ class SEIRModel:
             'HICU': HICU,
             'HVent': HICUVent,
             'D': D,
+            'direct_deaths_per_day': np.array([0] + list(D[1:] - D[:-1])), # Derivative...
             # Here we assume that the number of person days above the saturation
             # divided by the mean length of stay approximates the number of
             # deaths from each source.
@@ -370,8 +383,21 @@ class SEIRModel:
             'deaths_from_hospital_bed_limits': np.cumsum((HGen - self.beds_general).clip(min=0)) * self.mortality_rate_no_general_beds / self.hospitalization_length_of_stay_general,
             # Here ICU = ICU + ICUVent, but we want to remove the ventilated fraction and account for that below.
             'deaths_from_icu_bed_limits': np.cumsum((HICU - self.beds_ICU).clip(min=0)) * self.mortality_rate_no_ICU_beds / self.hospitalization_length_of_stay_icu,
-            'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator
+            'deaths_from_ventilator_limits': np.cumsum((HICUVent - self.ventilators).clip(min=0)) * self.mortality_rate_no_ventilator / self.hospitalization_length_of_stay_icu_and_ventilator,
+            'HGen_cumulative': np.cumsum(HGen) / self.hospitalization_length_of_stay_general,
+            'HICU_cumulative': np.cumsum(HICU) / self.hospitalization_length_of_stay_icu,
+            'HVent_cumulative': np.cumsum(HICUVent) / self.hospitalization_length_of_stay_icu_and_ventilator
         }
+
+        total_deaths = D + self.results['deaths_from_hospital_bed_limits'] \
+                         + self.results['deaths_from_icu_bed_limits'] \
+                         + self.results['deaths_from_ventilator_limits']
+
+        self.results['total_new_infections'] = np.array([0] + list(TotalAllInfections[1:] - TotalAllInfections[:-1]))  # Derivative of the cumulative.
+        self.results['total_deaths_per_day'] = np.array([0] + list(total_deaths[1:] - total_deaths[:-1]))  # Derivative of the cumulative.
+        self.results['general_admissions_per_day'] = np.array([0] + list(HAdmissions_general[1:] - HAdmissions_general[:-1]))  # Derivative of the cumulative.
+        self.results['icu_admissions_per_day'] = np.array([0] + list(HAdmissions_ICU[1:] - HAdmissions_ICU[:-1]))  # Derivative of the cumulative.
+
         self.results['total_deaths'] =   self.results['deaths_from_hospital_bed_limits'] \
                                        + self.results['deaths_from_icu_bed_limits'] \
                                        + self.results['deaths_from_ventilator_limits'] \
@@ -387,7 +413,7 @@ class SEIRModel:
             Matplotlib scale to use on y-axis. Typically 'log' or 'linear'
         """
         # Plot the data on three separate curves for S(t), I(t) and R(t)
-        plt.figure(facecolor='w', figsize=(20, 6))
+        fig = plt.figure(facecolor='w', figsize=(20, 6))
         plt.subplot(131)
         plt.plot(self.t_list, self.results['S'], alpha=1, lw=2, label='Susceptible')
         plt.plot(self.t_list, self.results['E'], alpha=.5, lw=2, label='Exposed')
@@ -446,3 +472,4 @@ class SEIRModel:
         plt.ylabel('Contact Rate Reduction')
         plt.xlabel('Time [days]', fontsize=12)
         plt.grid(True, which='both')
+        return fig
