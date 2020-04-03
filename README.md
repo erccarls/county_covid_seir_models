@@ -36,3 +36,12 @@ Change to into the county_covid_seir_models directory
 This will take a few minutes to download today's data, run inference and model
 ensembles, and generate the output. Then check the `output/` folder for results.
 
+# Changelog
+
+###4/3
+1. Add hospital admissions per day
+2. Add deaths per day
+3. Compute surge window start/end
+4. Plots case data and death data to county specific reports (still not yet fitting to death data: coming soon)
+5. Add empirical suppression policiesProduce 0%, 25%, 50%, 65% mitigation projections
+6. Reduce hospitalizations infection from 20% -> 10%

@@ -259,7 +259,7 @@ class SEIRModel:
         y: array
             S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
         """
-        S, E, A, I, R, HNonICU, HICU, HICUVent, D, dHAdmissions = y
+        S, E, A, I, R, HNonICU, HICU, HICUVent, D, dHAdmissions_general, dHAdmissions_icu, dTotalInfections = y
 
         # TODO: County-by-county affinity matrix terms can be used to describe
         # transmission network effects. ( also known as Multi-Region SEIR)
@@ -305,7 +305,12 @@ class SEIRModel:
 
         dHNonICU_dt = infected_and_in_hospital_general - recovered_after_hospital_general
         dHICU_dt = infected_and_in_hospital_icu - recovered_after_hospital_icu
-        dHAdmissions = infected_and_in_hospital_general + infected_and_in_hospital_icu  # Ventilators accounted for by ICU.
+
+        # Tracking categories...
+        dTotalInfections = exposed_and_symptomatic + exposed_and_asymptomatic
+        dHAdmissions_general = infected_and_in_hospital_general
+        dHAdmissions_ICU = infected_and_in_hospital_icu  # Ventilators also count as ICU beds.
+
 
         # This compartment is for tracking ventillator count. The beds are accounted for in the ICU cases.
         dHICUVent_dt = infected_and_in_hospital_icu * self.fraction_icu_requiring_ventilator \
@@ -321,7 +326,7 @@ class SEIRModel:
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
         dDdt = infected_and_dead  # Fraction that die.
-        return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt, dHAdmissions
+        return dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt, dHAdmissions_general, dHAdmissions_ICU, dTotalInfections
 
     def run(self):
         """
@@ -347,13 +352,14 @@ class SEIRModel:
         }
         """
         # Initial conditions vector
-        HAdmissions = 0
+        HAdmissions_general, HAdmissions_ICU, TotalAllInfections = 0, 0, 0
         y0 = self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.R_initial,\
-             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial, HAdmissions
+             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial, \
+             HAdmissions_general, HAdmissions_ICU, TotalAllInfections
 
         # Integrate the SIR equations over the time grid, t.
         result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
-        S, E, A, I, R, HGen, HICU, HICUVent, D, HAdmissions = result_time_series.T
+        S, E, A, I, R, HGen, HICU, HICUVent, D, HAdmissions_general, HAdmissions_ICU, TotalAllInfections = result_time_series.T
 
         # derivatives to get e.g. deaths per day or admissions per day.
         total_hosp = np.array(HGen + HICU + HICUVent)
@@ -387,8 +393,10 @@ class SEIRModel:
                          + self.results['deaths_from_icu_bed_limits'] \
                          + self.results['deaths_from_ventilator_limits']
 
+        self.results['total_new_infections'] = np.array([0] + list(TotalAllInfections[1:] - TotalAllInfections[:-1]))  # Derivative of the cumulative.
         self.results['total_deaths_per_day'] = np.array([0] + list(total_deaths[1:] - total_deaths[:-1]))  # Derivative of the cumulative.
-        self.results['admissions_per_day'] = np.array([0] + list(HAdmissions[1:] - HAdmissions[:-1]))  # Derivative of the cumulative.
+        self.results['general_admissions_per_day'] = np.array([0] + list(HAdmissions_general[1:] - HAdmissions_general[:-1]))  # Derivative of the cumulative.
+        self.results['icu_admissions_per_day'] = np.array([0] + list(HAdmissions_ICU[1:] - HAdmissions_ICU[:-1]))  # Derivative of the cumulative.
 
         self.results['total_deaths'] =   self.results['deaths_from_hospital_bed_limits'] \
                                        + self.results['deaths_from_icu_bed_limits'] \

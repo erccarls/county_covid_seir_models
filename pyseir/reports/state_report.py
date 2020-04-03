@@ -3,12 +3,13 @@ from copy import deepcopy
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
 import numpy as np
-from pyseir.reports.names import compartment_to_name_map
-from pyseir import load_data
-from pyseir.inference import fit_results
 from pyseir.reports.pdf_report_base import PDFReportBase
 from pyseir import OUTPUT_DIR
 import textwrap
+from pyseir.reports.names import compartment_to_name_map, policy_to_mitigation
+from pyseir import load_data
+from pyseir.inference import fit_results
+import pandas as pd
 
 
 class StateReport:
@@ -28,6 +29,7 @@ class StateReport:
         self.county_metadata = county_metadata.set_index('fips')
         self.names = [self.county_metadata.loc[fips, 'county'].replace(' County', '') for fips in self.counties]
         self.filename = os.path.join(OUTPUT_DIR, self.state, 'reports', f"summary__{self.state.title()}__state_report.pdf")
+        self.surge_filename = os.path.join(OUTPUT_DIR, self.state, 'reports', f"summary__{self.state.title()}__state_surge_report.xlsx")
 
     def generate_report(self):
         """
@@ -38,6 +40,7 @@ class StateReport:
             fig = self.plot_compartment(compartment)
             report.add_figure(fig=fig)
         report.close()
+        self.generate_surge_spreadsheet()
 
     def plot_compartment(self, compartment):
         """
@@ -176,3 +179,58 @@ class StateReport:
         plt.legend()
 
         return fig
+
+    def generate_surge_spreadsheet(self):
+        """
+        Produce a spreadsheet summarizing peaks.
+
+        Parameters
+        ----------
+        state: str
+            State to generate sheet for.
+
+        Returns
+        -------
+
+        """
+        df = load_data.load_county_metadata()
+        all_fips = df[df['state'].str.lower() == self.state.lower()].fips
+        all_data = {fips: load_data.load_ensemble_results(fips) for fips in all_fips}
+        df = df.set_index('fips')
+
+        records = []
+        for fips, ensembles in all_data.items():
+            county_name = df.loc[fips]['county']
+            t0 = fit_results.load_t0(fips)
+
+            for suppression_policy, ensemble in ensembles.items():
+
+                county_record = dict(
+                    county_name=county_name,
+                    county_fips=fips,
+                    mitigation_policy=policy_to_mitigation(suppression_policy)
+                )
+
+                for compartment in ['HGen', 'general_admissions_per_day', 'HICU', 'icu_admissions_per_day', 'total_new_infections',
+                                    'direct_deaths_per_day', 'total_deaths', 'D']:
+                    compartment_name = compartment_to_name_map[compartment]
+
+                    county_record[compartment_name + ' Peak Value Mean'] = '%.0f' % ensemble[compartment]['peak_value_mean']
+                    county_record[compartment_name + ' Peak Value Median'] = '%.0f' % ensemble[compartment]['peak_value_ci50']
+                    county_record[compartment_name + ' Peak Value CI25'] = '%.0f' % ensemble[compartment]['peak_value_ci25']
+                    county_record[compartment_name + ' Peak Value CI75'] = '%.0f' % ensemble[compartment]['peak_value_ci75']
+                    county_record[compartment_name + ' Peak Time Median'] = (t0 + timedelta(days=ensemble[compartment]['peak_time_ci50'])).date().isoformat()
+
+                    # if 'surge_start' in ensemble[compartment]:
+                    #     if not np.isnan(np.nanmean(ensemble[compartment]['surge_start'])):
+                    #         county_record[compartment_name + ' Surge Start Mean'] = (t0 + timedelta(days=np.nanmean(ensemble[compartment]['surge_start']))).date().isoformat()
+                    #         county_record[compartment_name + ' Surge End Mean'] = (t0 + timedelta(days=np.nanmean(ensemble[compartment]['surge_end']))).date().isoformat()
+
+                records.append(county_record)
+
+        df = pd.DataFrame(records)
+        writer = pd.ExcelWriter(self.surge_filename, engine='xlsxwriter')
+        for policy in df['mitigation_policy'].unique()[::-1]:
+            df[df['mitigation_policy'] == policy].drop(['mitigation_policy', 'county_fips'], axis=1)
+            df[df['mitigation_policy'] == policy].drop(['mitigation_policy', 'county_fips'], axis=1).to_excel(writer, sheet_name=policy)
+        writer.save()

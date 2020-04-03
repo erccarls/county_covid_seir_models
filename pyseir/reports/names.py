@@ -17,5 +17,11 @@ compartment_to_name_map = {
         'HVent_cumulative': 'Cumulative Ventilators',
         'direct_deaths_per_day': 'Direct Deaths Per Day',
         'total_deaths_per_day': 'Total Deaths Per Day (All Cause)',
-        'admissions_per_day': 'Total Admissions Per Day'
+        'general_admissions_per_day': 'General Admissions Per Day',
+        'icu_admissions_per_day': 'ICU Admissions Per Day',
+        'total_new_infections': 'Total New Infections'
     }
+
+
+def policy_to_mitigation(s):
+    return f'{100*(1 - float(s.split("__")[1])):.0f}% Mitigation'

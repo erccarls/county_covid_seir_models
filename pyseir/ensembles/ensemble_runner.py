@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from multiprocessing.pool import Pool
 from pyseir.models.seir_model import SEIRModel
 from pyseir.parameters.parameter_ensemble_generator import ParameterEnsembleGenerator
-from pyseir.models.suppression_policies import generate_triggered_suppression_model
+from pyseir.models.suppression_policies import generate_empirical_distancing_policy
 from pyseir.reports.pdf_report_base import PDFReportBase
 from pyseir import OUTPUT_DIR
 from pyseir.load_data import load_county_metadata, load_county_case_data
@@ -33,7 +33,7 @@ class EnsembleRunner:
     suppression_policy: list(float or str)
         List of suppression policies to apply.
     """
-    output_percentiles = [5, 32, 50, 68, 95]
+    output_percentiles = [5, 25, 32, 50, 75, 68, 95]
 
     def __init__(self, fips, n_years=2, N_samples=250,
                  suppression_policy=(0.35, 0.5, 0.75, 1), skip_plots=False):
@@ -103,8 +103,8 @@ class EnsembleRunner:
                 fips=self.summary['fips'],
                 N_samples=self.summary['N_samples'],
                 t_list=self.t_list,
-                suppression_policy=generate_triggered_suppression_model(
-                    self.t_list, lockdown_days=self.summary['n_years'] * 365, open_days=1, reduction=suppression_policy)
+                suppression_policy=generate_empirical_distancing_policy(
+                    self.t_list, fips=self.summary['fips'], future_suppression=suppression_policy)
             ).sample_seir_parameters()
 
             model_ensemble = list(map(self._run_simulation, parameter_ensemble))
@@ -206,7 +206,7 @@ class EnsembleRunner:
 
         self.all_outputs[f'suppression_policy__{suppression_policy}'] = outputs
 
-        # TODO This is ugly, but I am tired.. move to separate functions soon.
+        # TODO: Refactor... this plotting is ugly.
         if self.skip_plots:
             return
 
@@ -277,8 +277,8 @@ class EnsembleRunner:
 
         plt.subplot(5, 5, len(compartments) + 1)
 
-        for i, compartment in enumerate(['E', 'A', 'I', 'HGen', 'HICU', 'HVent', 'admissions_per_day',
-                                         'direct_deaths_per_day', 'total_deaths_per_day']):
+        for i, compartment in enumerate(['E', 'A', 'I', 'HGen', 'HICU', 'HVent', 'general_admissions_per_day',
+                                         'icu_admissions_per_day', 'direct_deaths_per_day', 'total_deaths_per_day']):
             median = outputs[compartment]['peak_time_ci50']
             ci5, ci95 = outputs[compartment]['peak_time_ci5'], outputs[compartment]['peak_time_ci95']
             ci32, ci68 = outputs[compartment]['peak_time_ci32'], outputs[compartment]['peak_time_ci68']
@@ -297,7 +297,8 @@ class EnsembleRunner:
         plt.subplot(5, 5, len(compartments) + 3)
         for i, compartment in enumerate(['E', 'A', 'I', 'R', 'D', 'total_deaths',
                                          'direct_deaths_per_day', 'total_deaths_per_day', 'HGen', 'HICU', 'HVent',
-                                         'HGen_cumulative', 'HICU_cumulative', 'HVent_cumulative', 'admissions_per_day']):
+                                         'HGen_cumulative', 'HICU_cumulative', 'HVent_cumulative',
+                                         'general_admissions_per_day', 'icu_admissions_per_day']):
             median = outputs[compartment]['peak_value_ci50']
             ci5, ci95 = outputs[compartment]['peak_value_ci5'], outputs[compartment]['peak_value_ci95']
             ci32, ci68 = outputs[compartment]['peak_value_ci32'], outputs[compartment]['peak_value_ci68']
@@ -309,7 +310,7 @@ class EnsembleRunner:
         plt.vlines(self.summary['population'], *plt.ylim(), label='Entire Population', alpha=0.5, color='g')
         plt.vlines(self.summary['population'] * 0.65, *plt.ylim(), label='Approx. Herd Immunity',
                    alpha=0.5, color='purple', linestyles='--', linewidths=2)
-        plt.legend(loc=(.85, 0.0))
+        plt.legend(loc=(1, -0.1))
         plt.grid(True, which='both', alpha=0.3)
         plt.xlabel('Value at Peak')
         plt.yticks([])

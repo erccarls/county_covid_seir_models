@@ -65,7 +65,7 @@ class ParameterEnsembleGenerator:
         for _ in range(self.N_samples):
 
             # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
-            # TODO: 10% is being used by CA group.  CDC suggests 20%..
+            # TODO: 10% is being used by CA group.  CDC suggests 20%..  3-5% asymptomatic.
             hospitalization_rate_general = np.random.normal(loc=.10, scale=0.03)
 
             fraction_asymptomatic = np.random.uniform(0.4, .6)
@@ -87,13 +87,11 @@ class ParameterEnsembleGenerator:
                 # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
                 hospitalization_rate_icu=max(np.random.normal(loc=.29, scale=0.03) * hospitalization_rate_general, 0),
                 # http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
-                # TODO Check this.
                 fraction_icu_requiring_ventilator=max(np.random.normal(loc=0.54, scale=0.2), 0),
                 sigma=1 / np.random.normal(loc=5.1, scale=0.86),  # Imperial college
                 kappa=1,
                 gamma=fraction_asymptomatic,
                 # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
-                # TODO: CHECK THIS
                 symptoms_to_hospital_days=np.random.normal(loc=6.5, scale=1.5),
                 symptoms_to_mortality_days=np.random.normal(loc=18.8, scale=.45), # Imperial College
                 hospitalization_length_of_stay_general=np.random.normal(loc=7, scale=2),
@@ -106,8 +104,11 @@ class ParameterEnsembleGenerator:
                 # “Among all patients, a range of 3% to 17% developed ARDS
                 # compared to a range of 20% to 42% for hospitalized patients
                 # and 67% to 85% for patients admitted to the ICU.1,4-6,8,11”
-                mortality_rate_no_general_beds=np.random.uniform(low=0.2, high=0.42),
-                mortality_rate_no_ICU_beds=np.random.uniform(low=0.5, high=0.75),
+
+                # 10% Of the population should die at saturation levels.
+                # CFR from Italy is 11.9% right now, Spain 8.9%.  System has to produce,
+                mortality_rate_no_general_beds=np.random.uniform(low=0.2, high=0.3),
+                mortality_rate_no_ICU_beds=np.random.uniform(low=0.8, high=1), # Bumped these up a bit. Dyspnea -> ARDS -> Septic Shock.
                 mortality_rate_no_ventilator=1,
                 beds_general=self.county_metadata_merged.get('num_licensed_beds', 0)
                              - self.county_metadata_merged.get('bed_utilization', 0)
