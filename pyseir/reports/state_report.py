@@ -1,9 +1,10 @@
 import os
+import logging
 from copy import deepcopy
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
 import numpy as np
-from pyseir.reports.pdf_report_base import PDFReport
+from pyseir.reports.pdf_report import PDFReport
 from pyseir import OUTPUT_DIR
 import textwrap
 from pyseir.reports.names import compartment_to_name_map, policy_to_mitigation
@@ -129,7 +130,7 @@ class StateReport:
                             try:
                                 plt.text(up_lim * 1.3, i - .5, f'UNKNOWN CAPACITY: %s NEEDED' % int(peak_value), color='r')
                             except ValueError:
-                                print('Error estimating peak. NaN')
+                                logging.warning('Error estimating peak. NaN')
                         else:
                             plt.text(up_lim*1.3, i-.5, f'Surge {peak_value / capacity * 100:.0f}%: {peak_value - capacity:.0f} Needed', color='r')
 

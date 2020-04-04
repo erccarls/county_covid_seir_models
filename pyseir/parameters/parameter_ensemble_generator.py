@@ -17,21 +17,15 @@ class ParameterEnsembleGenerator:
         Array of times to integrate against.
     I_initial: int
         Initial infected case count to consider.
-    infected_to_case_count_ratio: float
-        Multiplier on the ratio of tested cases vs untested cases at the
-        time of the simulation start. Note that asymptomatic cases are
-        already modeled.
     suppression_policy: callable(t): pyseir.model.suppression_policy
         Suppression policy to apply.
     """
     def __init__(self, fips, N_samples, t_list,
-                 I_initial=1, infected_to_case_count_ratio=1,
-                 suppression_policy=None):
+                 I_initial=1, suppression_policy=None):
 
         self.fips = fips
         self.N_samples = N_samples
         self.I_initial = I_initial
-        self.infected_to_case_count_ratio = infected_to_case_count_ratio
         self.suppression_policy = suppression_policy
         self.t_list = t_list
         county_metadata = load_data.load_county_metadata()
