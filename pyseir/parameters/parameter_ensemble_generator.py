@@ -65,7 +65,9 @@ class ParameterEnsembleGenerator:
         for _ in range(self.N_samples):
 
             # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html
-            # TODO: 10% is being used by CA group.  CDC suggests 20%..  3-5% asymptomatic.
+            # TODO: 10% is being used by CA group.  CDC suggests 20%..
+
+            # Note that this is 10% of symptomatic cases, making overall hospitalization around 5%.
             hospitalization_rate_general = np.random.normal(loc=.10, scale=0.03)
 
             fraction_asymptomatic = np.random.uniform(0.4, .6)
@@ -89,6 +91,7 @@ class ParameterEnsembleGenerator:
                 # http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
                 fraction_icu_requiring_ventilator=max(np.random.normal(loc=0.54, scale=0.2), 0),
                 sigma=1 / np.random.normal(loc=5.1, scale=0.86),  # Imperial college
+                delta=1 / np.random.gamma(5.0, scale=1),  # Kind of based on imperial college + CDC digest.
                 kappa=1,
                 gamma=fraction_asymptomatic,
                 # https://www.cdc.gov/coronavirus/2019-ncov/hcp/clinical-guidance-management-patients.html

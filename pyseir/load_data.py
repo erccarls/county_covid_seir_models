@@ -7,8 +7,8 @@ import re
 import io
 import zipfile
 import json
-from datetime import datetime
 from pyseir import OUTPUT_DIR
+
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 
@@ -205,6 +205,69 @@ def load_ensemble_results(fips):
     with open(path) as f:
         fit_results = json.load(f)
     return fit_results
+
+
+def load_county_metadata_by_fips(fips):
+    """
+    Generate a dictionary for a county which includes county metadata merged
+    with hospital capacity data.
+
+    Parameters
+    ----------
+    fips: str
+
+    Returns
+    -------
+    county_metadata: dict
+        Dictionary of metadata for the county. The keys are:
+
+        ['state', 'county', 'total_population', 'population_density',
+        'housing_density', 'age_distribution', 'age_bin_edges',
+        'num_licensed_beds', 'num_staffed_beds', 'num_icu_beds',
+        'bed_utilization', 'potential_increase_in_bed_capac']
+    """
+    county_metadata = load_county_metadata()
+    hospital_bed_data = load_hospital_data()
+
+    # Not all counties have hospital data.
+    hospital_bed_data = hospital_bed_data[
+        ['fips',
+         'num_licensed_beds',
+         'num_staffed_beds',
+         'num_icu_beds',
+         'bed_utilization',
+         'potential_increase_in_bed_capac']].groupby('fips').sum()
+
+    county_metadata_merged = county_metadata.merge(hospital_bed_data, on='fips', how='left').set_index('fips').loc[fips].to_dict()
+    return county_metadata_merged
+
+
+def load_new_case_data_by_fips(fips, t0):
+    """
+    Get data for new cases.
+
+    Parameters
+    ----------
+    fips: str
+        County fips to lookup.
+    t0: datetime
+        Datetime to offset by.
+
+    Returns
+    -------
+    times: array(float)
+        List of float days since t0 for the case and death counts below
+    observed_new_cases: array(int)
+        Array of new cases observed each day.
+    observed_new_deaths: array(int)
+        Array of new deaths observed each day.
+    """
+    _county_case_data = load_county_case_data()
+    county_case_data = _county_case_data[_county_case_data['fips'] == fips]
+    times_new = (county_case_data['date'] - t0).dt.days.iloc[1:]
+    observed_new_cases = county_case_data['cases'].values[1:] - county_case_data['cases'].values[:-1]
+    observed_new_deaths = county_case_data['deaths'].values[1:] - county_case_data['deaths'].values[:-1]
+    return times_new, observed_new_cases, observed_new_deaths
 
 
 def load_hospital_data():
