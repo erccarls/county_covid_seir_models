@@ -66,7 +66,6 @@ class InitialConditionsFitter:
         self.reduced_chi2 = None
         self.model_params = None
 
-
     @staticmethod
     def exponential_model(norm, t0, scale, t):
         """
@@ -118,18 +117,8 @@ class InitialConditionsFitter:
         """
         Use the migrad algorithm to minimize chi2 over the dataset.
         """
-        model_params = self.fit_county_initial_conditions(self.t, self.y)
-        fit_predictions = self.exponential_model(**model_params, t=self.t)
-
-        # Filter out data a few days before this and re-fit.
-        t0_idx = np.argmin(np.abs(fit_predictions - self.t0_case_count))
-
-        filter_start = max(0, t0_idx - self.start_days_before_t0)
-        filter_end = min(len(self.t), t0_idx + self.start_days_after_t0)
-        t_filtered = self.t[filter_start: filter_end]
-        y_filtered = self.y[filter_start: filter_end]
-
-        self.model_params = self.fit_county_initial_conditions(t_filtered, y_filtered)
+        logging.info(f'Fitting {self.county}, {self.state} Initial Conditions')
+        self.model_params = self.fit_county_initial_conditions()
         self.fit_predictions = self.exponential_model(**self.model_params, t=self.t)
         self.reduced_chi2 = self.exponential_loss(**self.model_params)
 
@@ -144,7 +133,11 @@ class InitialConditionsFitter:
         )
 
     def plot_fit(self):
+        """
+        Plot the exponential fit.
+        """
         plt.figure(figsize=(10, 7))
+
         plt.errorbar(self.t - self.t0, self.cases.cases, yerr=np.sqrt(self.cases.cases), marker='o', label='Cases')
         plt.plot(self.t - self.t0, self.fit_predictions, label='Best Fit with Filters')
         plt.yscale('log')
@@ -178,7 +171,7 @@ def generate_start_times_for_state(state):
     os.makedirs(os.path.join(state_dir, 'reports'), exist_ok=True)
     os.makedirs(os.path.join(state_dir, 'data'), exist_ok=True)
 
-    logging.info('Imputing start times for', state.capitalize())
+    logging.info(f'Imputing start times for {state.capitalize()}')
     counties = metadata[metadata['state'].str.lower() == state.lower()].fips
     if len(counties) == 0:
         raise ValueError(f'No entries for state {state}.')
@@ -200,7 +193,7 @@ def generate_start_times_for_state(state):
             fips_to_fit_map[fips] = fitter.fit_summary
 
         except ValueError as e:
-            logging.error(e)
+            logging.warning(str(e))
             fips_to_fit_map[fips] = {'model_params': None, 't0_date': None, 'reduced_chi2': None}
 
     # --------------------------------
@@ -218,7 +211,7 @@ def generate_start_times_for_state(state):
     X = np.log(merged[['population_density', 'housing_density', 'total_population']][samples_with_data])
     X_predict = np.log(merged[['population_density', 'housing_density', 'total_population']][samples_with_no_data])
 
-    # Test a few regressors
+    # Test a few regressions
     for estimator in [LinearRegression(), RandomForestRegressor(), BayesianRidge()]:
         cv_result = cross_validate(estimator, X=X, y=merged['days_from_2020_01_01'][samples_with_data], scoring='r2', cv=4)
         logging.info(f'{estimator.__class__.__name__} CV r2: {cv_result["test_score"].mean()}')

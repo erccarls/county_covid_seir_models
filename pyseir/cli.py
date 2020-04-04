@@ -1,4 +1,4 @@
-import os
+import sys
 import click
 import us
 import logging
@@ -6,7 +6,17 @@ from pyseir.load_data import cache_all_data
 from pyseir.inference.initial_conditions_fitter import generate_start_times_for_state
 from pyseir.ensembles.ensemble_runner import run_state
 from pyseir.reports.state_report import StateReport
-from pyseir import OUTPUT_DIR
+from pyseir.inference import model_fitter_mle
+
+
+root = logging.getLogger()
+root.setLevel(logging.INFO)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(filename)s - %(lineno)d - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+root.addHandler(handler)
 
 
 @click.group()
@@ -26,6 +36,14 @@ def _impute_start_dates(state=None):
     else:
         for state in us.states.STATES:
             _impute_start_dates(state)
+
+
+def _run_mle_fits(state=None):
+    if state:
+        model_fitter_mle.run_state(state.title())
+    else:
+        for state in us.states.STATES:
+            run_mle_fits(state)
 
 
 def _run_ensembles(state=None):
@@ -51,6 +69,7 @@ def _run_all(state=None):
 
     if state:
         _impute_start_dates(state.title())
+        _run_mle_fits(state)
         _run_ensembles(state.title())
         _generate_state_reports(state.title())
     else:
@@ -67,6 +86,12 @@ def _run_all(state=None):
 @click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
 def impute_start_dates(state):
     _impute_start_dates(state)
+
+
+@entry_point.command()
+@click.option('--state', default='', help='State to generate files for. If no state is given, all states are computed.')
+def run_mle_fits(state):
+    _run_mle_fits(state)
 
 
 @entry_point.command()

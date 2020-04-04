@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
 import numpy as np
-from pyseir.reports.pdf_report_base import PDFReport
+from pyseir.reports.pdf_report import PDFReport
 from pyseir import OUTPUT_DIR
 import textwrap
 from pyseir.reports.names import compartment_to_name_map, policy_to_mitigation
