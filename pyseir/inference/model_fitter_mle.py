@@ -140,10 +140,7 @@ def plot_inferred_result(fit_results):
                      transform=plt.gca().transAxes, fontsize=12)
 
 
-
-
 if __name__ == '__main__':
-    # fips = '06085'
     fips = '06075'
     values = fit_county_model(fips)
     plot_inferred_result(values)

@@ -13,29 +13,32 @@ from pyseir import OUTPUT_DIR
 
 
 class InitialConditionsFitter:
+    """
+    Fit an exponential model to observations assuming a binomial error on
+    observations. Identify t0 at the threshold specified.
+
+    This is left in for initial exponential fitting, but generally one should
+    use MLE or other fitters which (i) incorporate the full SEIR model to infer
+    parameters, (ii) fit to new case data rather than cumulative, and (iii) add
+    mortality.
+
+    Parameters
+    ----------
+    fips: str
+        County fips code
+    t0_case_count: int
+        Case count to infer the start date of.
+    start_days_before_t0: int
+        After we find the time of t0_case_count, filter observations
+        occurring more than this many days before.
+    start_days_after_t0: int
+        After we find the time of t0_case_count, filter observations
+        occurring more than this many days after.
+    """
 
     def __init__(self, fips, t0_case_count=1, start_days_before_t0=2,
                  start_days_after_t0=1000, min_days_required=5):
-        """
-        Fit an exponential model to observations assuming a binomial error on
-        observations. Identify t0 at the threshold specified.
 
-        # TODO: Can we incorporate the death rate into the fit to also infer
-        #       actual cases?
-
-        Parameters
-        ----------
-        fips: str
-            County fips code
-        t0_case_count: int
-            Case count to infer the start date of.
-        start_days_before_t0: int
-            After we find the time of t0_case_count, filter observations
-            occurring more than this many days before.
-        start_days_after_t0: int
-            After we find the time of t0_case_count, filter observations
-            occurring more than this many days after.
-        """
         self.t0_case_count = t0_case_count
         self.start_days_before_t0 = start_days_before_t0
         self.start_days_after_t0 = start_days_after_t0
@@ -62,21 +65,11 @@ class InitialConditionsFitter:
         self.reduced_chi2 = None
         self.model_params = None
 
+
     @staticmethod
     def exponential_model(norm, t0, scale, t):
         """
         Simple exponential model.
-
-        Parameters
-        ----------
-        norm
-        t0
-        scale
-        t
-
-        Returns
-        -------
-
         """
         return norm * np.exp((t - t0) / scale)
 
@@ -87,12 +80,15 @@ class InitialConditionsFitter:
 
         Parameters
         ----------
-        y_pred
-        y
+        y_pred: array-like
+            Predictions from the model to fit.
+        y: array-like
+            Observations to fit against.
 
         Returns
         -------
         reduced_chi2: float
+            chi^2 / d.o.f.
         """
         chi2 = (y_pred[y > 0] - y[y > 0]) ** 2 / y[y > 0]
         return np.sum(chi2) / (len(chi2) - 1)
@@ -102,13 +98,25 @@ class InitialConditionsFitter:
         y_pred = self.exponential_model(norm, t0, scale, self.t)
         return self._reduced_chi2(y_pred, self.y)
 
-    def fit_county_initial_conditions(self, t, y):
+    def fit_county_initial_conditions(self):
+        """
+        Determine the initial conditions by fitting an exponential to a set of
+        observations.
+
+        Returns
+        -------
+        : dict
+            Fit parameters norm, t0, scale.
+        """
         x0 = dict(norm=1, t0=5, scale=20, error_norm=.01, error_t0=.1, error_scale=.01)
         m = iminuit.Minuit(self.exponential_loss, **x0, errordef=0.5)
         fit = m.migrad()
         return {val['name']: val['value'] for val in fit.params}
 
     def fit(self):
+        """
+        Use the migrad algorithm to minimize chi2 over the dataset.
+        """
         model_params = self.fit_county_initial_conditions(self.t, self.y)
         fit_predictions = self.exponential_model(**model_params, t=self.t)
 
@@ -250,13 +258,4 @@ def generate_start_times_for_state(state):
 
 
 if __name__ == '__main__':
-    #
-    # fitter = InitialConditionsFitter(
-    #     fips='06075',  # SF County
-    #     t0_case_count=5,
-    #     start_days_before_t0=5,
-    #     start_days_after_t0=1000
-    # )
-    # fitter.fit()
-    # fitter.plot_fit()
     generate_start_times_for_state('California')
