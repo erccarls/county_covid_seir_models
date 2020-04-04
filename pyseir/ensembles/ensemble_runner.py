@@ -10,7 +10,7 @@ from multiprocessing.pool import Pool
 from pyseir.models.seir_model import SEIRModel
 from pyseir.parameters.parameter_ensemble_generator import ParameterEnsembleGenerator
 from pyseir.models.suppression_policies import generate_empirical_distancing_policy
-from pyseir.reports.pdf_report_base import PDFReportBase
+from pyseir.reports.pdf_report import PDFReport
 from pyseir import OUTPUT_DIR
 from pyseir.load_data import load_county_metadata, load_county_case_data
 from pyseir.inference import fit_results
@@ -65,7 +65,7 @@ class EnsembleRunner:
             OUTPUT_DIR, self.summary['state'], 'data',
             f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.json")
 
-        self.report = PDFReportBase(filename=self.output_file_report)
+        self.report = PDFReport(filename=self.output_file_report)
 
         self.report.write_text_page(self.summary,
                                     title=f'PySEIR COVID19 Estimates\n{self.summary["county"]} County, {self.summary["state"]}',
@@ -74,7 +74,7 @@ class EnsembleRunner:
                                     title='PySEIR Model Ensemble Parameters')
 
     @staticmethod
-    def _run_simulation(parameter_set):
+    def _run_single_simulation(parameter_set):
         """
         Run a single simulation instance.
 
@@ -104,13 +104,16 @@ class EnsembleRunner:
                 N_samples=self.summary['N_samples'],
                 t_list=self.t_list,
                 suppression_policy=generate_empirical_distancing_policy(
-                    self.t_list, fips=self.summary['fips'], future_suppression=suppression_policy)
+                    t_list=self.t_list,
+                    fips=self.summary['fips'],
+                    future_suppression=suppression_policy
+                )
             ).sample_seir_parameters()
-
-            model_ensemble = list(map(self._run_simulation, parameter_ensemble))
+            model_ensemble = list(map(self._run_single_simulation, parameter_ensemble))
 
             print(f'Generating Report for suppression policy {suppression_policy}')
             self.generate_output(model_ensemble, suppression_policy)
+
         self.report.close()
 
         with open(self.output_file_data, 'w') as f:
@@ -143,10 +146,12 @@ class EnsembleRunner:
 
         Parameters
         ----------
-        model_ensemble
+        model_ensemble: list(SEIRModel)
+        suppression_policy: float()
 
         Returns
         -------
+
         """
         compartments = {key: [] for key in model_ensemble[0].results.keys() if key not in ('t_list')}
 
@@ -264,12 +269,9 @@ class EnsembleRunner:
             plt.legend()
             self._plot_dates(log=False)
 
-
-
         # -----------------------------
         # Plot peak Timing
         # -----------------------------
-        color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color'] + list('bgrcmyk')
         color_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color'] + list('bgrcmyk')
 
         marker_cycle = ['o', 's', '+', 'd', 'o'] * 4

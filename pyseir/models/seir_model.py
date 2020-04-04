@@ -346,7 +346,7 @@ class SEIRModel:
         self.results['total_new_infections'] = np.append([0], TotalAllInfections[1:] - TotalAllInfections[:-1])
         self.results['total_deaths_per_day'] = np.append([0], self.results['total_deaths'][1:] - self.results['total_deaths'][:-1])
         self.results['general_admissions_per_day'] = np.append([0], HAdmissions_general[1:] - HAdmissions_general[:-1])
-        self.results['icu_admissions_per_day'] = np.append([0] + HAdmissions_ICU[1:] - HAdmissions_ICU[:-1])  # Derivative of the cumulative.
+        self.results['icu_admissions_per_day'] = np.append([0], HAdmissions_ICU[1:] - HAdmissions_ICU[:-1])  # Derivative of the cumulative.
 
 
 
