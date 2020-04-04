@@ -11,7 +11,7 @@ from pyseir import load_data, OUTPUT_DIR
 from pyseir.models.seir_model import SEIRModel
 from pyseir.parameters.parameter_ensemble_generator import ParameterEnsembleGenerator
 
-t_list = np.linspace(0, 1000, 1000)
+t_list = np.linspace(0, 1000, 1001)
 ref_date = datetime(year=2020, month=1, day=1)
 
 
@@ -25,7 +25,7 @@ def get_average_SEIR_parameters(fips):
     params: dict
         The average ensemble params.
     """
-    SEIR_kwargs = ParameterEnsembleGenerator(fips, N_samples=1000,
+    SEIR_kwargs = ParameterEnsembleGenerator(fips, N_samples=10000,
                                              t_list=t_list,
                                              suppression_policy=None).get_average_seir_parameters()
     SEIR_kwargs.pop('R0')
@@ -82,7 +82,7 @@ def fit_county_model(fips):
 
         # Compute Chi2
         chi2_cases = np.sum((observed_new_cases - predicted_cases) ** 2 / cases_variance)
-        if predicted_deaths.sum() > 5:
+        if observed_new_deaths.sum() > 5:
             chi2_deaths = np.sum(
                 (observed_new_deaths - predicted_deaths) ** 2 / deaths_variance)
         else:
@@ -90,7 +90,7 @@ def fit_county_model(fips):
         return chi2_deaths + chi2_cases
 
     # Note that error def is not right here. We need a realistic error model...
-    m = iminuit.Minuit(_fit_seir, R0=4, t0=30, eps=.5, error_eps=.2, limit_R0=[0, 8],
+    m = iminuit.Minuit(_fit_seir, R0=4, t0=50, eps=.5, error_eps=.2, limit_R0=[1, 8],
                        limit_eps=[0, 2], limit_t0=[-90, 90], error_t0=1, error_R0=1.,
                        errordef=1)
     m.migrad()
@@ -109,7 +109,6 @@ def plot_inferred_result(fit_results):
     """
     Plot the results of an MLE inference
     """
-    t_list = np.linspace(0, 1000, 1000)
     fips = fit_results['fips']
     county_metadata = load_data.load_county_metadata().set_index('fips').loc[fips].to_dict()
     times, observed_new_cases, observed_new_deaths = load_data.load_new_case_data_by_fips(fips, t0=ref_date)
@@ -129,7 +128,7 @@ def plot_inferred_result(fit_results):
     model.run()
 
     data_dates = [ref_date + timedelta(days=t) for t in times]
-    model_dates = [ref_date + timedelta(days=t) for t in t_list]
+    model_dates = [ref_date + timedelta(days=t + fit_results['t0']) for t in t_list]
     plt.figure(figsize=(10, 8))
     plt.errorbar(data_dates, observed_new_cases, marker='o', linestyle='', label='Observed Cases Per Day')
     plt.errorbar(data_dates, observed_new_deaths, yerr=np.sqrt(observed_new_deaths), marker='o', linestyle='', label='Observed Deaths')
@@ -137,7 +136,7 @@ def plot_inferred_result(fit_results):
     plt.plot(model_dates, model.gamma * model.results['total_new_infections'], label='Symptomatic Model Cases Per Day')
     plt.plot(model_dates, model.results['direct_deaths_per_day'], label='Model Deaths Per Day')
     plt.yscale('log')
-    plt.ylim(1e0, 1e4)
+    plt.ylim(.9e0)
     plt.xlim(data_dates[0], data_dates[-1] + timedelta(days=90))
 
     plt.xticks(rotation=30)
@@ -146,10 +145,10 @@ def plot_inferred_result(fit_results):
     plt.title(county_metadata['county'])
     for i, (k, v) in enumerate(fit_results.items()):
         if k not in ('fips', 't0_date', 'county', 'state'):
-            plt.text(.025, .99 - 0.04 * i, f'{k}={v:1.3f}',
+            plt.text(.025, .97 - 0.04 * i, f'{k}={v:1.3f}',
                      transform=plt.gca().transAxes, fontsize=12)
         else:
-            plt.text(.025, .99 - 0.04 * i, f'{k}={v}',
+            plt.text(.025, .97 - 0.04 * i, f'{k}={v}',
                      transform=plt.gca().transAxes, fontsize=12)
 
     output_file = os.path.join(
@@ -169,6 +168,7 @@ def run_state(state):
     """
     df = load_data.load_county_metadata()
     all_fips = df[df['state'].str.lower() == state.lower()].fips
+
     p = Pool()
     fit_results = p.map(fit_county_model, all_fips)
 
