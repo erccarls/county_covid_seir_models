@@ -1,4 +1,5 @@
 import datetime
+import logging
 import os
 import inspect
 import numpy as np
@@ -98,7 +99,8 @@ class EnsembleRunner:
         output report / results dataset.
         """
         for suppression_policy in self.summary['suppression_policy']:
-            print(f'Generating For Policy {suppression_policy}')
+
+            logging.info(f'Generating For Policy {suppression_policy}')
             parameter_ensemble = ParameterEnsembleGenerator(
                 fips=self.summary['fips'],
                 N_samples=self.summary['N_samples'],
@@ -111,7 +113,7 @@ class EnsembleRunner:
             ).sample_seir_parameters()
             model_ensemble = list(map(self._run_single_simulation, parameter_ensemble))
 
-            print(f'Generating Report for suppression policy {suppression_policy}')
+            logging.info(f'Generating Report for suppression policy {suppression_policy}')
             self.generate_output(model_ensemble, suppression_policy)
 
         self.report.close()

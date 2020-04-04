@@ -1,6 +1,7 @@
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
 import os
+import logging
 import numpy as np
 import pandas as pd
 import iminuit
@@ -177,7 +178,7 @@ def generate_start_times_for_state(state):
     os.makedirs(os.path.join(state_dir, 'reports'), exist_ok=True)
     os.makedirs(os.path.join(state_dir, 'data'), exist_ok=True)
 
-    print('Imputing start times for', state.capitalize())
+    logging.info('Imputing start times for', state.capitalize())
     counties = metadata[metadata['state'].str.lower() == state.lower()].fips
     if len(counties) == 0:
         raise ValueError(f'No entries for state {state}.')
@@ -199,7 +200,7 @@ def generate_start_times_for_state(state):
             fips_to_fit_map[fips] = fitter.fit_summary
 
         except ValueError as e:
-            print(e)
+            logging.error(e)
             fips_to_fit_map[fips] = {'model_params': None, 't0_date': None, 'reduced_chi2': None}
 
     # --------------------------------
@@ -220,7 +221,7 @@ def generate_start_times_for_state(state):
     # Test a few regressors
     for estimator in [LinearRegression(), RandomForestRegressor(), BayesianRidge()]:
         cv_result = cross_validate(estimator, X=X, y=merged['days_from_2020_01_01'][samples_with_data], scoring='r2', cv=4)
-        print(f'{estimator.__class__.__name__} CV r2: {cv_result["test_score"].mean()}')
+        logging.info(f'{estimator.__class__.__name__} CV r2: {cv_result["test_score"].mean()}')
 
     # Train best model and impute the missing times.
     best_model = BayesianRidge()

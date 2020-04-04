@@ -1,4 +1,5 @@
 import os
+import logging
 import pandas as pd
 import numpy as np
 import urllib.request
@@ -48,7 +49,7 @@ def cache_county_case_data():
     """
     Cache county covid case data from NYT in #PYSEIR_HOME/data.
     """
-    print('Downloading covid case data')
+    logging.info('Downloading covid case data')
     # NYT dataset
     county_case_data = pd.read_csv('https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv', dtype='str')
     county_case_data['date'] = pd.to_datetime(county_case_data['date'])
@@ -96,7 +97,7 @@ def cache_hospital_beds():
     Pulled from "Definitive"
     See: https://services7.arcgis.com/LXCny1HyhQCUSueu/arcgis/rest/services/Definitive_Healthcare_Hospitals_Beds_Hospitals_Only/FeatureServer/0
     """
-    print('Downloading ICU capacity data.')
+    logging.info('Downloading ICU capacity data.')
     url = 'http://opendata.arcgis.com/datasets/f3f76281647f4fbb8a0d20ef13b650ca_0.geojson'
     tmp_file = urllib.request.urlretrieve(url)[0]
 
@@ -112,7 +113,7 @@ def cache_mobility_data():
     """
     Pulled from https://github.com/descarteslabs/DL-COVID-19
     """
-    print('Downloading mobility data.')
+    logging.info('Downloading mobility data.')
     url = 'https://raw.githubusercontent.com/descarteslabs/DL-COVID-19/master/DL-us-mobility-daterow.csv'
 
     dtypes_mapping = {
@@ -141,7 +142,7 @@ def cache_public_implementations_data():
     """
     Pulled from https://github.com/JieYingWu/COVID-19_US_County-level_Summaries
     """
-    print('Downloading public implementations data')
+    logging.info('Downloading public implementations data')
     url = 'https://raw.githubusercontent.com/JieYingWu/COVID-19_US_County-level_Summaries/master/raw_data/national/public_implementations_fips.csv'
 
     data = requests.get(url, verify=False).content.decode('utf-8')
