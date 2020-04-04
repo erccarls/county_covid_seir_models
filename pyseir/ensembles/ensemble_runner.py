@@ -4,6 +4,7 @@ import os
 import inspect
 import numpy as np
 import json
+import copy
 from collections import defaultdict
 from functools import partial
 import matplotlib.pyplot as plt
@@ -13,7 +14,7 @@ from pyseir.parameters.parameter_ensemble_generator import ParameterEnsembleGene
 from pyseir.models.suppression_policies import generate_empirical_distancing_policy
 from pyseir.reports.pdf_report import PDFReport
 from pyseir import OUTPUT_DIR
-from pyseir.load_data import load_county_metadata, load_county_case_data
+from pyseir import load_data
 from pyseir.inference import fit_results
 from pyseir.reports.names import compartment_to_name_map
 
@@ -29,48 +30,49 @@ class EnsembleRunner:
         County fips code
     n_years: int
         Number of years to simulate
-    N_samples: int
+    n_samples: int
         Ensemble size to run for each suppression policy.
     suppression_policy: list(float or str)
         List of suppression policies to apply.
+    output_percentiles: list
+        List of output percentiles desired. These will be computed for each
+        compartment.
     """
-    output_percentiles = [5, 25, 32, 50, 75, 68, 95]
+    def __init__(self, fips, n_years=2, n_samples=250,
+                 suppression_policy=(0.35, 0.5, 0.75, 1),
+                 skip_plots=False,
+                 output_percentiles=(5, 25, 32, 50, 75, 68, 95)):
 
-    def __init__(self, fips, n_years=2, N_samples=250,
-                 suppression_policy=(0.35, 0.5, 0.75, 1), skip_plots=False):
+        self.fips = fips
         self.t_list = np.linspace(0, 365 * n_years, 365 * n_years)
         self.skip_plots = skip_plots
-        county_metadata = load_county_metadata().set_index('fips').loc[fips].to_dict()
 
-        self.summary = {
-            'date_generated': datetime.datetime.utcnow().isoformat(),
-            'suppression_policy': suppression_policy,
-            'fips': fips,
-            'N_samples': N_samples,
-            'n_years': n_years,
-            't0': fit_results.load_t0(fips),
-            'population': county_metadata['total_population'],
-            'population_density': county_metadata['population_density'],
-            'state': county_metadata['state'],
-            'county': county_metadata['county']
-        }
+        self.county_metadata = load_data.load_county_metadata_by_fips(fips)
+        self.output_percentiles = output_percentiles
+        self.n_samples = n_samples
+        self.n_years = n_years
+        self.t0 = fit_results.load_t0(fips)
+        self.date_generated = datetime.datetime.utcnow().isoformat()
+        self.suppression_policy = suppression_policy
 
-        _county_case_data = load_county_case_data()
+        self.summary = copy.deepcopy(self.__dict__)
+        self.summary.pop('t_list')
+
+        _county_case_data = load_data.load_county_case_data()
         self.county_case_data = _county_case_data[_county_case_data['fips'] == fips]
 
         self.all_outputs = {}
-        self.output_file_report = os.path.join(
-            OUTPUT_DIR, self.summary['state'], 'reports',
-            f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.pdf")
-        self.output_file_data = os.path.join(
-            OUTPUT_DIR, self.summary['state'], 'data',
-            f"{self.summary['state']}__{self.summary['county']}__{self.summary['fips']}__ensemble_projections.json")
+        self.output_file_report = os.path.join(OUTPUT_DIR, self.county_metadata['state'], 'reports',
+            f"{self.county_metadata['state']}__{self.county_metadata['county']}__{self.fips}__ensemble_projections.pdf")
+        self.output_file_data = os.path.join( OUTPUT_DIR, self.county_metadata['state'], 'data',
+            f"{self.county_metadata['state']}__{self.county_metadata['county']}__{self.fips}__ensemble_projections.json")
 
         self.report = PDFReport(filename=self.output_file_report)
 
         self.report.write_text_page(self.summary,
-                                    title=f'PySEIR COVID19 Estimates\n{self.summary["county"]} County, {self.summary["state"]}',
+                                    title=f'PySEIR COVID19 Estimates\n{self.county_metadata["county"]} County, {self.county_metadata["state"]}',
                                     page_heading=f'Generated {self.summary["date_generated"]}', body_fontsize=6, title_fontsize=12)
+
         self.report.write_text_page(inspect.getsource(ParameterEnsembleGenerator.sample_seir_parameters),
                                     title='PySEIR Model Ensemble Parameters')
 
@@ -99,18 +101,18 @@ class EnsembleRunner:
         output report / results dataset.
         """
         for suppression_policy in self.summary['suppression_policy']:
-
             logging.info(f'Generating For Policy {suppression_policy}')
+
             parameter_ensemble = ParameterEnsembleGenerator(
-                fips=self.summary['fips'],
-                N_samples=self.summary['N_samples'],
+                fips=self.fips,
+                N_samples=self.n_samples,
                 t_list=self.t_list,
                 suppression_policy=generate_empirical_distancing_policy(
                     t_list=self.t_list,
-                    fips=self.summary['fips'],
+                    fips=self.fips,
                     future_suppression=suppression_policy
-                )
-            ).sample_seir_parameters()
+                )).sample_seir_parameters()
+
             model_ensemble = list(map(self._run_single_simulation, parameter_ensemble))
 
             logging.info(f'Generating Report for suppression policy {suppression_policy}')
@@ -120,27 +122,6 @@ class EnsembleRunner:
 
         with open(self.output_file_data, 'w') as f:
             json.dump(self.all_outputs, f)
-
-    def _plot_dates(self, log=True):
-        """
-        Helper function to add date plots.
-
-        Parameters
-        ----------
-        log: bool
-            If True, shift y-positioning of labels based on a log scale.
-        """
-        low_limit = plt.ylim()[0]
-        if log:
-            upp_limit = 1 * np.log(plt.ylim()[1])
-        else:
-            upp_limit = 1 * plt.ylim()[1]
-
-        for month in range(4, 11):
-            dt = datetime.datetime(day=1, month=month, year=2020)
-            offset = (dt - self.summary['t0']).days
-            plt.vlines(offset, low_limit, upp_limit, color='firebrick', alpha=.4, linestyles=':')
-            plt.text(offset, low_limit*1.3, dt.strftime('%B'), rotation=90, color='firebrick', alpha=0.6)
 
     def generate_output(self, model_ensemble, suppression_policy):
         """
@@ -220,7 +201,7 @@ class EnsembleRunner:
         # Add a sample model from the ensemble.
         fig = model_ensemble[0].plot_results(xlim=(0, 360))
         fig.suptitle(
-            f'PySEIR COVID19 Estimates: {self.summary["county"]} County, {self.summary["state"]}. '
+            f'PySEIR COVID19 Estimates: {self.county_metadata["county"]} County, {self.county_metadata["state"]}. '
             f'SAMPLE OF MODEL ENSEMBLE', fontsize=16)
         self.report.add_figure(fig)
 
@@ -228,7 +209,7 @@ class EnsembleRunner:
         # Plot each compartment distribution
         # -----------------------------------
         fig = plt.figure(figsize=(20, 24))
-        fig.suptitle(f'PySEIR COVID19 Estimates: {self.summary["county"]} County, {self.summary["state"]}. '
+        fig.suptitle(f'PySEIR COVID19 Estimates: {self.county_metadata["county"]} County, {self.county_metadata["state"]}. '
                      f'\nSupression Policy={suppression_policy} (1=No Suppression)' , fontsize=16)
         for i_plot, compartment in enumerate(compartments):
             plt.subplot(5, 5, i_plot + 1)
@@ -311,8 +292,8 @@ class EnsembleRunner:
             plt.fill_betweenx([i-.1, i+.1], [ci5, ci5], [ci95, ci95], alpha=.3, color=color_cycle[i])
             plt.xscale('log')
 
-        plt.vlines(self.summary['population'], *plt.ylim(), label='Entire Population', alpha=0.5, color='g')
-        plt.vlines(self.summary['population'] * 0.65, *plt.ylim(), label='Approx. Herd Immunity',
+        plt.vlines(self.county_metadata['total_population'], *plt.ylim(), label='Entire Population', alpha=0.5, color='g')
+        plt.vlines(self.county_metadata['total_population'] * 0.65, *plt.ylim(), label='Approx. Herd Immunity',
                    alpha=0.5, color='purple', linestyles='--', linewidths=2)
         plt.legend(loc=(1, -0.1))
         plt.grid(True, which='both', alpha=0.3)
@@ -320,6 +301,28 @@ class EnsembleRunner:
         plt.yticks([])
 
         self.report.add_figure(fig)
+
+    def _plot_dates(self, log=True):
+        """
+        Helper function to add date plots.
+
+        Parameters
+        ----------
+        log: bool
+            If True, shift y-positioning of labels based on a log scale.
+        """
+        low_limit = plt.ylim()[0]
+        if log:
+            upp_limit = 1 * np.log(plt.ylim()[1])
+        else:
+            upp_limit = 1 * plt.ylim()[1]
+
+        for month in range(4, 11):
+            dt = datetime.datetime(day=1, month=month, year=2020)
+            offset = (dt - self.summary['t0']).days
+            plt.vlines(offset, low_limit, upp_limit, color='firebrick', alpha=.4, linestyles=':')
+            plt.text(offset, low_limit*1.3, dt.strftime('%B'), rotation=90, color='firebrick', alpha=0.6)
+
 
 
 def _run_county(fips, ensemble_kwargs):
@@ -348,7 +351,7 @@ def run_state(state, ensemble_kwargs):
     ensemble_kwargs: dict
         Kwargs passed to the EnsembleRunner object.
     """
-    df = load_county_metadata()
+    df = load_data.load_county_metadata()
     all_fips = df[df['state'].str.lower() == state.lower()].fips
     p = Pool()
     f = partial(_run_county, ensemble_kwargs=ensemble_kwargs)
