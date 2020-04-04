@@ -1,4 +1,3 @@
-import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize, dual_annealing, basinhopping, differential_evolution
 
@@ -91,11 +90,10 @@ class PolicyOptimizer:
         # This may get memory hungry so leaving out for now...
         # self.fit_results['models'].append(model)
 
-        # We also add a small Gaussian Prior Toward No Distancing Policy
+        # We can also add a small Gaussian Prior Toward No Distancing Policy
         # (i.e. suppression_level=1) to stabilize the Fit
         # This prior could be refined to be an alternative outcome such as economic incentives
-
-        loss = self.fit_results['total_deaths'][-1] #\
+        loss = self.fit_results['total_deaths'][-1]
                 #+ 10 * self.fit_results['total_deaths'][-1] * np.average((x - 1) ** 2)
         return loss
 
@@ -120,9 +118,10 @@ class PolicyOptimizer:
 
         self.best_model = self.seir_model_class(
             **self.seir_model_args,
-            suppression_policy=self.parametric_policy(self.minimization_results['x'],
-                                                      t_list=self.seir_model_args['t_list'],
-                                                      **self.parametric_policy_kwargs)
+            suppression_policy=self.parametric_policy(
+                self.minimization_results['x'],
+                t_list=self.seir_model_args['t_list'],
+                **self.parametric_policy_kwargs)
         )
         self.best_model.run()
 
