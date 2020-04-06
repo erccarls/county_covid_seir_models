@@ -5,7 +5,10 @@ from matplotlib.font_manager import FontProperties
 import pprint
 
 
-class PDFReportBase:
+class PDFReport:
+    """
+    Generate pdf reports with text pages and plots.
+    """
 
     def __init__(self, filename):
         self.filename = filename

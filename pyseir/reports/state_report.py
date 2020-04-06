@@ -1,9 +1,10 @@
 import os
+import logging
 from copy import deepcopy
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
 import numpy as np
-from pyseir.reports.pdf_report_base import PDFReportBase
+from pyseir.reports.pdf_report import PDFReport
 from pyseir import OUTPUT_DIR
 import textwrap
 from pyseir.reports.names import compartment_to_name_map, policy_to_mitigation
@@ -35,7 +36,7 @@ class StateReport:
         """
         Generate a full report for the state.
         """
-        report = PDFReportBase(filename=self.filename)
+        report = PDFReport(filename=self.filename)
         for compartment in self.plot_compartments:
             fig = self.plot_compartment(compartment)
             report.add_figure(fig=fig)
@@ -129,7 +130,7 @@ class StateReport:
                             try:
                                 plt.text(up_lim * 1.3, i - .5, f'UNKNOWN CAPACITY: %s NEEDED' % int(peak_value), color='r')
                             except ValueError:
-                                print('Error estimating peak. NaN')
+                                logging.warning('Error estimating peak. NaN')
                         else:
                             plt.text(up_lim*1.3, i-.5, f'Surge {peak_value / capacity * 100:.0f}%: {peak_value - capacity:.0f} Needed', color='r')
 
@@ -221,6 +222,7 @@ class StateReport:
                     county_record[compartment_name + ' Peak Value CI75'] = '%.0f' % ensemble[compartment]['peak_value_ci75']
                     county_record[compartment_name + ' Peak Time Median'] = (t0 + timedelta(days=ensemble[compartment]['peak_time_ci50'])).date().isoformat()
 
+                    # Leaving for now...
                     # if 'surge_start' in ensemble[compartment]:
                     #     if not np.isnan(np.nanmean(ensemble[compartment]['surge_start'])):
                     #         county_record[compartment_name + ' Surge Start Mean'] = (t0 + timedelta(days=np.nanmean(ensemble[compartment]['surge_start']))).date().isoformat()

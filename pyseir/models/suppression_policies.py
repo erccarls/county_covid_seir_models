@@ -97,6 +97,7 @@ def generate_empirical_distancing_policy(t_list, fips, future_suppression):
     # Check for fips that don't match.
     public_implementations = load_public_implementations_data().set_index('fips')
 
+    # Not all counties present in this dataset.
     if fips not in public_implementations.index:
         # Then assume 1.0 until today and then future_suppression going forward.
         for t_step in t_list:
@@ -116,9 +117,13 @@ def generate_empirical_distancing_policy(t_list, fips, future_suppression):
                 rho.append(future_suppression)
                 continue
 
-            # If the policy was enacted on this timestep then activate it in addition to others.
-            # These measures are additive.
-            for independent_measure in ['public_schools', 'entertainment_gym', 'restaurant_dine-in', 'federal_guidelines']:
+            # If the policy was enacted on this timestep then activate it in
+            # addition to others. These measures are additive unless lockdown is
+            # instituted.
+            for independent_measure in ['public_schools',
+                                        'entertainment_gym',
+                                        'restaurant_dine-in',
+                                        'federal_guidelines']:
 
                 if not pd.isnull(policies[independent_measure]) and t_actual > \
                         policies[independent_measure]:
@@ -131,7 +136,8 @@ def generate_empirical_distancing_policy(t_list, fips, future_suppression):
             elif not pd.isnull(policies['500_gatherings']) and t_actual > policies['500_gatherings']:
                 rho_this_t -= distancing_measure_suppression['500_gatherings']
 
-            # If lockdown, then we don't care about any others, just set to future suppression.
+            # If lockdown, then we don't care about any others, just set to
+            # future suppression.
             if pd.isnull(policies['stay_at_home']) and t_actual > policies['stay_at_home']:
                 rho_this_t = future_suppression
             rho.append(rho_this_t)

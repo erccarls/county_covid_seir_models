@@ -1,6 +1,7 @@
 from datetime import timedelta, datetime
 import matplotlib.pyplot as plt
 import os
+import logging
 import numpy as np
 import pandas as pd
 import iminuit
@@ -13,29 +14,32 @@ from pyseir import OUTPUT_DIR
 
 
 class InitialConditionsFitter:
+    """
+    Fit an exponential model to observations assuming a binomial error on
+    observations. Identify t0 at the threshold specified.
+
+    This is left in for initial exponential fitting, but generally one should
+    use MLE or other fitters which (i) incorporate the full SEIR model to infer
+    parameters, (ii) fit to new case data rather than cumulative, and (iii) add
+    mortality.
+
+    Parameters
+    ----------
+    fips: str
+        County fips code
+    t0_case_count: int
+        Case count to infer the start date of.
+    start_days_before_t0: int
+        After we find the time of t0_case_count, filter observations
+        occurring more than this many days before.
+    start_days_after_t0: int
+        After we find the time of t0_case_count, filter observations
+        occurring more than this many days after.
+    """
 
     def __init__(self, fips, t0_case_count=1, start_days_before_t0=2,
                  start_days_after_t0=1000, min_days_required=5):
-        """
-        Fit an exponential model to observations assuming a binomial error on
-        observations. Identify t0 at the threshold specified.
 
-        # TODO: Can we incorporate the death rate into the fit to also infer
-        #       actual cases?
-
-        Parameters
-        ----------
-        fips: str
-            County fips code
-        t0_case_count: int
-            Case count to infer the start date of.
-        start_days_before_t0: int
-            After we find the time of t0_case_count, filter observations
-            occurring more than this many days before.
-        start_days_after_t0: int
-            After we find the time of t0_case_count, filter observations
-            occurring more than this many days after.
-        """
         self.t0_case_count = t0_case_count
         self.start_days_before_t0 = start_days_before_t0
         self.start_days_after_t0 = start_days_after_t0
@@ -66,17 +70,6 @@ class InitialConditionsFitter:
     def exponential_model(norm, t0, scale, t):
         """
         Simple exponential model.
-
-        Parameters
-        ----------
-        norm
-        t0
-        scale
-        t
-
-        Returns
-        -------
-
         """
         return norm * np.exp((t - t0) / scale)
 
@@ -87,12 +80,15 @@ class InitialConditionsFitter:
 
         Parameters
         ----------
-        y_pred
-        y
+        y_pred: array-like
+            Predictions from the model to fit.
+        y: array-like
+            Observations to fit against.
 
         Returns
         -------
         reduced_chi2: float
+            chi^2 / d.o.f.
         """
         chi2 = (y_pred[y > 0] - y[y > 0]) ** 2 / y[y > 0]
         return np.sum(chi2) / (len(chi2) - 1)
@@ -102,25 +98,27 @@ class InitialConditionsFitter:
         y_pred = self.exponential_model(norm, t0, scale, self.t)
         return self._reduced_chi2(y_pred, self.y)
 
-    def fit_county_initial_conditions(self, t, y):
+    def fit_county_initial_conditions(self):
+        """
+        Determine the initial conditions by fitting an exponential to a set of
+        observations.
+
+        Returns
+        -------
+        : dict
+            Fit parameters norm, t0, scale.
+        """
         x0 = dict(norm=1, t0=5, scale=20, error_norm=.01, error_t0=.1, error_scale=.01)
         m = iminuit.Minuit(self.exponential_loss, **x0, errordef=0.5)
         fit = m.migrad()
         return {val['name']: val['value'] for val in fit.params}
 
     def fit(self):
-        model_params = self.fit_county_initial_conditions(self.t, self.y)
-        fit_predictions = self.exponential_model(**model_params, t=self.t)
-
-        # Filter out data a few days before this and re-fit.
-        t0_idx = np.argmin(np.abs(fit_predictions - self.t0_case_count))
-
-        filter_start = max(0, t0_idx - self.start_days_before_t0)
-        filter_end = min(len(self.t), t0_idx + self.start_days_after_t0)
-        t_filtered = self.t[filter_start: filter_end]
-        y_filtered = self.y[filter_start: filter_end]
-
-        self.model_params = self.fit_county_initial_conditions(t_filtered, y_filtered)
+        """
+        Use the migrad algorithm to minimize chi2 over the dataset.
+        """
+        logging.info(f'Fitting {self.county}, {self.state} Initial Conditions')
+        self.model_params = self.fit_county_initial_conditions()
         self.fit_predictions = self.exponential_model(**self.model_params, t=self.t)
         self.reduced_chi2 = self.exponential_loss(**self.model_params)
 
@@ -135,7 +133,11 @@ class InitialConditionsFitter:
         )
 
     def plot_fit(self):
+        """
+        Plot the exponential fit.
+        """
         plt.figure(figsize=(10, 7))
+
         plt.errorbar(self.t - self.t0, self.cases.cases, yerr=np.sqrt(self.cases.cases), marker='o', label='Cases')
         plt.plot(self.t - self.t0, self.fit_predictions, label='Best Fit with Filters')
         plt.yscale('log')
@@ -169,7 +171,7 @@ def generate_start_times_for_state(state):
     os.makedirs(os.path.join(state_dir, 'reports'), exist_ok=True)
     os.makedirs(os.path.join(state_dir, 'data'), exist_ok=True)
 
-    print('Imputing start times for', state.capitalize())
+    logging.info(f'Imputing start times for {state.capitalize()}')
     counties = metadata[metadata['state'].str.lower() == state.lower()].fips
     if len(counties) == 0:
         raise ValueError(f'No entries for state {state}.')
@@ -191,7 +193,7 @@ def generate_start_times_for_state(state):
             fips_to_fit_map[fips] = fitter.fit_summary
 
         except ValueError as e:
-            print(e)
+            logging.warning(str(e))
             fips_to_fit_map[fips] = {'model_params': None, 't0_date': None, 'reduced_chi2': None}
 
     # --------------------------------
@@ -209,10 +211,10 @@ def generate_start_times_for_state(state):
     X = np.log(merged[['population_density', 'housing_density', 'total_population']][samples_with_data])
     X_predict = np.log(merged[['population_density', 'housing_density', 'total_population']][samples_with_no_data])
 
-    # Test a few regressors
+    # Test a few regressions
     for estimator in [LinearRegression(), RandomForestRegressor(), BayesianRidge()]:
         cv_result = cross_validate(estimator, X=X, y=merged['days_from_2020_01_01'][samples_with_data], scoring='r2', cv=4)
-        print(f'{estimator.__class__.__name__} CV r2: {cv_result["test_score"].mean()}')
+        logging.info(f'{estimator.__class__.__name__} CV r2: {cv_result["test_score"].mean()}')
 
     # Train best model and impute the missing times.
     best_model = BayesianRidge()
@@ -250,13 +252,4 @@ def generate_start_times_for_state(state):
 
 
 if __name__ == '__main__':
-    #
-    # fitter = InitialConditionsFitter(
-    #     fips='06075',  # SF County
-    #     t0_case_count=5,
-    #     start_days_before_t0=5,
-    #     start_days_after_t0=1000
-    # )
-    # fitter.fit()
-    # fitter.plot_fit()
     generate_start_times_for_state('California')
