@@ -440,10 +440,10 @@ class SEIRModelAge:
         total_ppl = (S + E + A + I + R).sum()
 
         # get matrix:
-        # [C_11 * S_1 * I_1/N_1, ... C1j * S_1j * I_1j/N_j...]
-        # [C_21 * S_2 * I_1/N_1, ... C1j * S_2 * I_j/N_j...]
+        # [C_11 * S_1 * I_1/N, ... C1j * S_1 * I_j/N...]
+        # [C_21 * S_2 * I_1/N, ... C1j * S_2 * I_j/N...]
         # ...
-        # [C_21 * S_nI_1/N_1, ... S_nI_j/N_j...]
+        # [C_21 * S_n * I_1/N, ... C_21 * S_n * I_j/N ...]
         frac_infected = (self.kappa * I + A) / total_ppl
         contacts_S_and_I = S[:, np.newaxis].dot(frac_infected[:, np.newaxis].T)
         effective_contacts = (contacts_S_and_I * self.contact_matrix).sum(axis=1)
