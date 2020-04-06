@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import scipy
 
 
-class SEIRModel:
+class SEIRModelAge:
 
     def __init__(self,
                  N,
@@ -332,7 +332,7 @@ class SEIRModel:
         # due to transmission from columns
         T_E_E = np.zeros((age_group_num, age_group_num))  # from E to E
         T_E_A = contact_with_susceptible * beta  # A to E
-        T_E_I = contact_with_susceptible * beta * self.kappa # I to E
+        T_E_I = contact_with_susceptible * beta  # I to E
         T_A_E = np.zeros((age_group_num, age_group_num))  # E to A
         T_A_A = np.zeros((age_group_num, age_group_num))  # A to A
         T_A_I = np.zeros((age_group_num, age_group_num))  # I to A
