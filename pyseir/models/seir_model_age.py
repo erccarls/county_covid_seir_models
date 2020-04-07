@@ -19,7 +19,7 @@ class SEIRModelAge:
                  HICUVent_initial=np.array([0, 0, 0, 0, 0]),
                  birth_rate=0.0015,  # birth rate per capita per day
                  age_bin_edges=np.array([0, 5, 20, 45, 65]),
-                 D_initial=0,
+                 D_initial=np.array([0, 0, 0, 0, 0]),
                  R0=3.75,
                  sigma=1 / 5.2,
                  delta=1/2.5,
@@ -234,7 +234,7 @@ class SEIRModelAge:
         # Create age steps and groups to define age compartments
         self.age_steps = np.array(age_bin_edges)[1:] - np.array(age_bin_edges)[:-1]
         self.age_steps *= 365  # the model is using day as time unit
-        self.age_steps = np.insert(self.age_steps, -1, 100 * 365 - age_bin_edges[-1])
+        self.age_steps = np.append(self.age_steps, 100 * 365 - age_bin_edges[-1])
         self.age_groups = list(zip(list(age_bin_edges[:-1]), list(age_bin_edges[1:])))
         self.age_groups.append((age_bin_edges[-1], 100))
 
@@ -303,7 +303,7 @@ class SEIRModelAge:
 
         return age_in, age_out
 
-    def calculate_R0(self, beta):
+    def calculate_R0(self, beta, S_fracs=None):
         """
         Using Next Generation Matrix method to calculate R0 given beta.
 
@@ -320,13 +320,14 @@ class SEIRModelAge:
         """
 
         # percentage of susceptible in each age group (assuming that initial condition is disease-free equilibrium)
-        P = self.N / self.N.sum()
+        if S_fracs is None:
+            S_fracs = self.N / self.N.sum()
         age_group_num = self.N.shape[0]
         # contact with susceptible at disease-free equilibrium
         # [C_11 * P_1, C_12 * P_1, ... C_1n * P_n]
         # ...
         # [C_n1 * P_n, C_n2 * P_n, ... C_nn * P_n]
-        contact_with_susceptible = self.contact_matrix.values * P.T
+        contact_with_susceptible = self.contact_matrix.values * S_fracs.T
 
         # transmission matrix with rates of immediate new infections into rows
         # due to transmission from columns
@@ -407,6 +408,17 @@ class SEIRModelAge:
         beta = f(expected_R0)
         return float(beta.real)
 
+    def calculate_Rt(self, S_fracs, suppression_policy):
+        """
+        Calculate R(t)
+        """
+        Rts = list()
+        for n in range(S_fracs.shape[1]):
+            Rt = self.calculate_R0(self.beta, S_fracs[:, n]) * suppression_policy[n]
+            Rts.append(Rt)
+        return Rts
+
+
     def _time_step(self, y, t):
         """
         One integral moment.
@@ -415,7 +427,7 @@ class SEIRModelAge:
             S, E, A, I, R, HNonICU, HICU, HICUVent, D = y
         """
 
-        S, E, A, I, R, HNonICU, HICU, HICUVent = np.split(y[:-4], 8)
+        S, E, A, I, R, HNonICU, HICU, HICUVent, D = np.split(y[:-3], 9)
 
         # TODO: County-by-county affinity matrix terms can be used to describe
         # transmission network effects. ( also known as Multi-Region SEIR)
@@ -445,9 +457,9 @@ class SEIRModelAge:
         # ...
         # [C_21 * S_n * I_1/N, ... C_21 * S_n * I_j/N ...]
         frac_infected = (self.kappa * I + A) / total_ppl
-        contacts_S_and_I = S[:, np.newaxis].dot(frac_infected[:, np.newaxis].T)
-        effective_contacts = (contacts_S_and_I * self.contact_matrix).sum(axis=1)
-        number_exposed = self.beta * self.suppression_policy(t) * effective_contacts
+        S_and_I = S[:, np.newaxis].dot(frac_infected[:, np.newaxis].T)
+        contacts_S_and_I = (S_and_I * self.contact_matrix).sum(axis=1)
+        number_exposed = self.beta * self.suppression_policy(t) * contacts_S_and_I
         age_in_S, age_out_S = self._aging_rate(S)
         age_in_S[0] = self.N.sum() * self.birth_rate
         dSdt = age_in_S - number_exposed - age_out_S
@@ -504,12 +516,12 @@ class SEIRModelAge:
         # TODO Modify this based on increased mortality if beds saturated
         # TODO Age dep mortality. Recent estimate fo relative distribution Fig 3 here:
         #      http://www.healthdata.org/sites/default/files/files/research_articles/2020/covid_paper_MEDRXIV-2020-043752v1-Murray.pdf
-        dDdt = sum(infected_and_dead) + sum(age_out_S) + sum(age_out_E) + sum(age_out_I) \
-               + sum(age_out_A) + sum(age_out_R)
-        # Fraction
-        # that die.
-        return np.concatenate([dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt,
-                               np.array([dDdt, dHAdmissions_general, dHAdmissions_ICU, dTotalInfections])])
+
+        # Fraction that die.
+        dDdt = infected_and_dead
+
+        return np.concatenate([dSdt, dEdt, dAdt, dIdt, dRdt, dHNonICU_dt, dHICU_dt, dHICUVent_dt, dDdt,
+                               np.array([dHAdmissions_general, dHAdmissions_ICU, dTotalInfections])])
 
     def run(self):
         """
@@ -537,17 +549,20 @@ class SEIRModelAge:
         # Initial conditions vector
         HAdmissions_general, HAdmissions_ICU, TotalAllInfections = 0, 0, 0
         y0 = np.concatenate([self.S_initial, self.E_initial, self.A_initial, self.I_initial, self.R_initial,\
-                             self.HGen_initial, self.HICU_initial, self.HICUVent_initial,
-                             np.array([self.D_initial, HAdmissions_general,
-                                       HAdmissions_ICU, TotalAllInfections])])
+                             self.HGen_initial, self.HICU_initial, self.HICUVent_initial, self.D_initial,
+                             np.array([HAdmissions_general, HAdmissions_ICU, TotalAllInfections])])
 
         # Integrate the SIR equations over the time grid, t.
         result_time_series = odeint(self._time_step, y0, self.t_list, atol=1e-3, rtol=1e-3)
-        S, E, A, I, R, HGen, HICU, HICUVent = np.split(result_time_series.T[:-4], 8)
-        D, HAdmissions_general, HAdmissions_ICU, TotalAllInfections = result_time_series.T[-4:]
+        S, E, A, I, R, HGen, HICU, HICUVent, D = np.split(result_time_series.T[:-3], 9)
+        HAdmissions_general, HAdmissions_ICU, TotalAllInfections = result_time_series.T[-3:]
 
         # derivatives to get e.g. deaths per day or admissions per day.
         total_hosp = np.array(HGen + HICU + HICUVent)
+
+        S_fracs_within_age_group = S / S.sum(axis=0)
+
+        Rt = self.calculate_Rt(S_fracs_within_age_group, self.suppression_policy(self.t_list))
 
         self.results = {
             't_list': self.t_list,
@@ -560,7 +575,8 @@ class SEIRModelAge:
             'HICU': HICU,
             'HVent': HICUVent,
             'D': D,
-            'direct_deaths_per_day': np.array([0] + list(D[1:] - D[:-1])) # Derivative...
+            'Rt': Rt,
+            'direct_deaths_per_day': np.array([0] + list(D.sum(axis=0)[1:] - D.sum(axis=0)[:-1])) # Derivative...
             # Here we assume that the number of person days above the saturation
             # divided by the mean length of stay approximates the number of
             # deaths from each source.
@@ -602,8 +618,8 @@ class SEIRModelAge:
         """
         if not by_age_group:
             # Plot the data on three separate curves for S(t), I(t) and R(t)
-            fig = plt.figure(facecolor='w', figsize=(20, 6))
-            plt.subplot(131)
+            fig = plt.figure(facecolor='w', figsize=(10, 8))
+            plt.subplot(221)
             plt.plot(self.t_list, self.results['S'].sum(axis=0), alpha=1, lw=2, label='Susceptible')
             plt.plot(self.t_list, self.results['E'].sum(axis=0), alpha=.5, lw=2, label='Exposed')
             plt.plot(self.t_list, self.results['A'].sum(axis=0), alpha=.5, lw=2, label='Asymptomatic')
@@ -612,7 +628,7 @@ class SEIRModelAge:
 
             plt.plot(self.t_list, self.results['S'].sum(axis=0) + self.results['E'].sum(axis=0)
                      + self.results['A'].sum(axis=0) + self.results['I'].sum(axis=0)
-                     + self.results['R'].sum(axis=0) + self.results['D']
+                     + self.results['R'].sum(axis=0) + self.results['D'].sum(axis=0)
                      + self.results['HGen'].sum(axis=0) + self.results['HICU'].sum(axis=0),
                      label='Total')
 
@@ -631,9 +647,10 @@ class SEIRModelAge:
                 plt.xlim(0, self.t_list.max())
             plt.ylim(1, self.N.sum(axis=0) * 1.1)
 
-            plt.subplot(132)
+            plt.subplot(222)
 
-            plt.plot(self.t_list, self.results['D'], alpha=.4, c='k', lw=1, label='Direct Deaths', linestyle='-')
+            plt.plot(self.t_list, self.results['D'].sum(axis=0), alpha=.4, c='k', lw=1, label='Direct Deaths',
+                     linestyle='-')
             # plt.plot(self.t_list, self.results['deaths_from_hospital_bed_limits'], alpha=1, c='k', lw=1, label='Deaths
             # From Bed Limits', linestyle=':')
             # plt.plot(self.t_list, self.results['deaths_from_icu_bed_limits'], alpha=1, c='k', lw=2, label='Deaths From ICU Bed Limits', linestyle='-.')
@@ -662,26 +679,46 @@ class SEIRModelAge:
                 plt.xlim(0, self.t_list.max())
 
             # Reproduction numbers
-            plt.subplot(133)
+            plt.subplot(223)
             plt.plot(self.t_list, [self.suppression_policy(t) for t in self.t_list], c='steelblue')
             plt.ylabel('Contact Rate Reduction')
             plt.xlabel('Time [days]', fontsize=12)
             plt.grid(True, which='both')
 
+            plt.subplot(224)
+            plt.plot(self.t_list, self.results['Rt'], c='steelblue')
+            plt.ylabel('R(t)')
+            plt.xlabel('Time [days]', fontsize=12)
+            plt.grid(True, which='both')
+
+            plt.tight_layout()
+
         else:
             # Plot the data by age group
-            fig = plt.figure(facecolor='w', figsize=(15, 30))
+            fig, axes = plt.subplots(len(self.age_groups), 2, figsize=(10, 50))
             for n, age_group in enumerate(self.age_groups):
-                plt.subplot(np.ceil(len(self.age_groups)/3), 3, n+1)
-                plt.plot(self.t_list, self.results['S'][n, :], alpha=1, lw=2, label='Susceptible')
-                plt.plot(self.t_list, self.results['E'][n, :], alpha=.5, lw=2, label='Exposed')
-                plt.plot(self.t_list, self.results['A'][n, :], alpha=.5, lw=2, label='Asymptomatic')
-                plt.plot(self.t_list, self.results['I'][n, :], alpha=.5, lw=2, label='Infected')
-                plt.plot(self.t_list, self.results['R'][n, :], alpha=1, lw=2, label='Recovered & Immune',
+                ax1, ax2 = axes[n]
+                ax1.plot(self.t_list, self.results['S'][n, :], alpha=1, lw=2, label='Susceptible')
+                ax1.plot(self.t_list, self.results['E'][n, :], alpha=.5, lw=2, label='Exposed')
+                ax1.plot(self.t_list, self.results['A'][n, :], alpha=.5, lw=2, label='Asymptomatic')
+                ax1.plot(self.t_list, self.results['I'][n, :], alpha=.5, lw=2, label='Infected')
+                ax1.plot(self.t_list, self.results['R'][n, :], alpha=1, lw=2, label='Recovered & Immune',
                          linestyle='--')
-                plt.ylabel('days')
-                plt.legend()
-                plt.title('age group %d-%d' %(age_group[0], age_group[1]))
+                ax2.plot(self.t_list, self.results['HGen'][n, :], alpha=1, lw=2, label='Hospital general',
+                         linestyle='--')
+                ax2.plot(self.t_list, self.results['HICU'][n, :], alpha=1, lw=2, label='ICU',
+                         linestyle='--')
+                ax2.plot(self.t_list, self.results['D'][n, :], alpha=1, lw=2, label='direct death',
+                         linestyle='--')
+                ax1.legend()
+                ax2.legend()
+                ax1.set_xlabel('days')
+                ax2.set_xlabel('days')
+                ax1.set_title('age group %d-%d' %(age_group[0], age_group[1]))
+                ax1.set_yscale('log')
+                ax2.set_yscale('log')
+                ax1.set_ylim(ymin=1)
+                ax2.set_ylim(ymin=1)
 
             plt.tight_layout()
 
