@@ -138,6 +138,7 @@ class SEIRModel:
                  HICU_initial=0,
                  HICUVent_initial=0,
                  D_initial=0,
+                 birth_rate=0.0015,
                  R0=3.75,
                  sigma=1 / 5.2,
                  delta=1 / 5.2, # Infectious period
@@ -184,6 +185,7 @@ class SEIRModel:
 
         # These need to be made age dependent R0 =  beta = Contact rate * infectious period.
         self.beta = self.R0 * self.sigma
+        self.birth_rate = birth_rate
 
         self.mortality_rate = mortality_rate
         self.symptoms_to_hospital_days = symptoms_to_hospital_days
@@ -226,7 +228,7 @@ class SEIRModel:
 
         # Effective contact rate * those that get exposed * those susceptible.
         number_exposed = self.beta * self.suppression_policy(t) * S * (self.kappa * I + A) / self.N
-        dSdt = - number_exposed
+        dSdt = self.birth_rate * self.N - number_exposed
 
         exposed_and_symptomatic = self.gamma * self.sigma * E           # latent period moving to infection = 1 / incubation
         exposed_and_asymptomatic = (1 - self.gamma) * self.sigma * E    # latent period moving to asymptomatic but infected) = 1 / incubation
