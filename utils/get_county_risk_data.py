@@ -55,7 +55,6 @@ def get_cms_data():
         disease_young = disease_young.fillna(dict(disease_young.iloc[0]))
         disease_old = disease_old.fillna(dict(disease_young.iloc[0]))
         df = pd.concat([disease_old, disease_young])
-        df[df['county'] == ' '] = 'state_average'
 
     col_names = ['State', 'County', 'FIPS_code', 'Alcohol Abuse',
        "Alzheimer's Disease/Dementia", 'Arthritis', 'Asthma',
@@ -109,6 +108,6 @@ def get_overall_risk(odds_dict=odds_dict):
 if __name__ == '__main__':
 
     df = get_overall_risk()
-    df.to_csv('county_level_covid_risk.csv')
+    df.to_csv('county_level_covid_risk.csv', index=False)
 
 
