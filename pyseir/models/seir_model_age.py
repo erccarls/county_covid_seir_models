@@ -591,7 +591,7 @@ class SEIRModelAge:
         #                                + self.results['deaths_from_ventilator_limits'] \
         #                                + self.results['D']
 
-    def plot_results(self, y_scale='log', xlim=None):
+    def plot_results(self, y_scale='log', by_age_group=False, xlim=None):
         """
         Generate a summary plot for the simulation.
 
@@ -600,67 +600,92 @@ class SEIRModelAge:
         y_scale: str
             Matplotlib scale to use on y-axis. Typically 'log' or 'linear'
         """
-        # Plot the data on three separate curves for S(t), I(t) and R(t)
-        fig = plt.figure(facecolor='w', figsize=(20, 6))
-        plt.subplot(131)
-        plt.plot(self.t_list, self.results['S'].sum(axis=0), alpha=1, lw=2, label='Susceptible')
-        plt.plot(self.t_list, self.results['E'].sum(axis=0), alpha=.5, lw=2, label='Exposed')
-        plt.plot(self.t_list, self.results['A'].sum(axis=0), alpha=.5, lw=2, label='Asymptomatic')
-        plt.plot(self.t_list, self.results['I'].sum(axis=0), alpha=.5, lw=2, label='Infected')
-        plt.plot(self.t_list, self.results['R'].sum(axis=0), alpha=1, lw=2, label='Recovered & Immune', linestyle='--')
+        if not by_age_group:
+            # Plot the data on three separate curves for S(t), I(t) and R(t)
+            fig = plt.figure(facecolor='w', figsize=(20, 6))
+            plt.subplot(131)
+            plt.plot(self.t_list, self.results['S'].sum(axis=0), alpha=1, lw=2, label='Susceptible')
+            plt.plot(self.t_list, self.results['E'].sum(axis=0), alpha=.5, lw=2, label='Exposed')
+            plt.plot(self.t_list, self.results['A'].sum(axis=0), alpha=.5, lw=2, label='Asymptomatic')
+            plt.plot(self.t_list, self.results['I'].sum(axis=0), alpha=.5, lw=2, label='Infected')
+            plt.plot(self.t_list, self.results['R'].sum(axis=0), alpha=1, lw=2, label='Recovered & Immune', linestyle='--')
 
-        # This is debugging and should be constant.
-        # TODO: we must be missing a small conservation term above.
-        plt.plot(self.t_list,  self.results['S'].sum(axis=0) + self.results['E'].sum(axis=0)
-                             + self.results['A'].sum(axis=0) + self.results['I'].sum(axis=0)
-                             + self.results['R'].sum(axis=0) + self.results['D']
-                             + self.results['HGen'].sum(axis=0) + self.results['HICU'].sum(axis=0),
-                 label='Total')
+            plt.plot(self.t_list, self.results['S'].sum(axis=0) + self.results['E'].sum(axis=0)
+                     + self.results['A'].sum(axis=0) + self.results['I'].sum(axis=0)
+                     + self.results['R'].sum(axis=0) + self.results['D']
+                     + self.results['HGen'].sum(axis=0) + self.results['HICU'].sum(axis=0),
+                     label='Total')
 
-        plt.xlabel('Time [days]', fontsize=12)
-        plt.yscale(y_scale)
-        # plt.ylim(1, plt.ylim(1))
-        plt.grid(True, which='both', alpha=.35)
-        plt.legend(framealpha=.5)
-        if xlim:
-            plt.xlim(*xlim)
+
+            # This is debugging and should be constant.
+            # TODO: we must be missing a small conservation term above.
+
+            plt.xlabel('Time [days]', fontsize=12)
+            plt.yscale(y_scale)
+            # plt.ylim(1, plt.ylim(1))
+            plt.grid(True, which='both', alpha=.35)
+            plt.legend(framealpha=.5)
+            if xlim:
+                plt.xlim(*xlim)
+            else:
+                plt.xlim(0, self.t_list.max())
+            plt.ylim(1, self.N.sum(axis=0) * 1.1)
+
+            plt.subplot(132)
+
+            plt.plot(self.t_list, self.results['D'], alpha=.4, c='k', lw=1, label='Direct Deaths', linestyle='-')
+            # plt.plot(self.t_list, self.results['deaths_from_hospital_bed_limits'], alpha=1, c='k', lw=1, label='Deaths
+            # From Bed Limits', linestyle=':')
+            # plt.plot(self.t_list, self.results['deaths_from_icu_bed_limits'], alpha=1, c='k', lw=2, label='Deaths From ICU Bed Limits', linestyle='-.')
+            # plt.plot(self.t_list, self.results['deaths_from_ventilator_limits'], alpha=1, c='k', lw=2, label='Deaths From No Ventillator', linestyle='--')
+            # plt.plot(self.t_list, self.results['total_deaths'], alpha=1, c='k', lw=4, label='Total Deaths', linestyle='-')
+
+            plt.plot(self.t_list, self.results['HGen'].sum(axis=0), alpha=1, lw=2, c='steelblue',
+                     label='General Beds Required', linestyle='-')
+            plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'steelblue', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='--')
+
+            plt.plot(self.t_list, self.results['HICU'].sum(axis=0), alpha=1, lw=2, c='firebrick', label='ICU Beds Required', linestyle='-')
+            plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'firebrick', alpha=1, lw=2, label='General Bed Capacity', linestyle='--')
+
+            plt.plot(self.t_list, self.results['HVent'].sum(axis=0), alpha=1, lw=2, c='seagreen', label='Ventilators Required', linestyle='-')
+            plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'seagreen', alpha=1, lw=2, label='Ventilator Capacity', linestyle='--')
+
+            plt.xlabel('Time [days]', fontsize=12)
+            plt.ylabel('')
+            plt.yscale(y_scale)
+            plt.ylim(1, plt.ylim()[1])
+            plt.grid(True, which='both', alpha=.35)
+            plt.legend(framealpha=.5)
+            if xlim:
+                plt.xlim(*xlim)
+            else:
+                plt.xlim(0, self.t_list.max())
+
+            # Reproduction numbers
+            plt.subplot(133)
+            plt.plot(self.t_list, [self.suppression_policy(t) for t in self.t_list], c='steelblue')
+            plt.ylabel('Contact Rate Reduction')
+            plt.xlabel('Time [days]', fontsize=12)
+            plt.grid(True, which='both')
+
         else:
-            plt.xlim(0, self.t_list.max())
-        plt.ylim(1, self.N.sum(axis=0) * 1.1)
+            # Plot the data by age group
+            fig = plt.figure(facecolor='w', figsize=(15, 30))
+            for n, age_group in enumerate(self.age_groups):
+                plt.subplot(np.ceil(len(self.age_groups)/3), 3, n+1)
+                plt.plot(self.t_list, self.results['S'][n, :], alpha=1, lw=2, label='Susceptible')
+                plt.plot(self.t_list, self.results['E'][n, :], alpha=.5, lw=2, label='Exposed')
+                plt.plot(self.t_list, self.results['A'][n, :], alpha=.5, lw=2, label='Asymptomatic')
+                plt.plot(self.t_list, self.results['I'][n, :], alpha=.5, lw=2, label='Infected')
+                plt.plot(self.t_list, self.results['R'][n, :], alpha=1, lw=2, label='Recovered & Immune',
+                         linestyle='--')
+                plt.ylabel('days')
+                plt.legend()
+                plt.title('age group %d-%d' %(age_group[0], age_group[1]))
 
-        plt.subplot(132)
+            plt.tight_layout()
 
-        plt.plot(self.t_list, self.results['D'], alpha=.4, c='k', lw=1, label='Direct Deaths', linestyle='-')
-        # plt.plot(self.t_list, self.results['deaths_from_hospital_bed_limits'], alpha=1, c='k', lw=1, label='Deaths From Bed Limits', linestyle=':')
-        # plt.plot(self.t_list, self.results['deaths_from_icu_bed_limits'], alpha=1, c='k', lw=2, label='Deaths From ICU Bed Limits', linestyle='-.')
-        # plt.plot(self.t_list, self.results['deaths_from_ventilator_limits'], alpha=1, c='k', lw=2, label='Deaths From No Ventillator', linestyle='--')
-        # plt.plot(self.t_list, self.results['total_deaths'], alpha=1, c='k', lw=4, label='Total Deaths', linestyle='-')
-
-        plt.plot(self.t_list, self.results['HGen'].sum(axis=0), alpha=1, lw=2, c='steelblue',
-                 label='General Beds Required', linestyle='-')
-        plt.hlines(self.beds_general, self.t_list[0], self.t_list[-1], 'steelblue', alpha=1, lw=2, label='ICU Bed Capacity', linestyle='--')
-
-        plt.plot(self.t_list, self.results['HICU'].sum(axis=0), alpha=1, lw=2, c='firebrick', label='ICU Beds Required', linestyle='-')
-        plt.hlines(self.beds_ICU, self.t_list[0], self.t_list[-1], 'firebrick', alpha=1, lw=2, label='General Bed Capacity', linestyle='--')
-
-        plt.plot(self.t_list, self.results['HVent'].sum(axis=0), alpha=1, lw=2, c='seagreen', label='Ventilators Required', linestyle='-')
-        plt.hlines(self.ventilators, self.t_list[0], self.t_list[-1], 'seagreen', alpha=1, lw=2, label='Ventilator Capacity', linestyle='--')
-
-        plt.xlabel('Time [days]', fontsize=12)
-        plt.ylabel('')
-        plt.yscale(y_scale)
-        plt.ylim(1, plt.ylim()[1])
-        plt.grid(True, which='both', alpha=.35)
-        plt.legend(framealpha=.5)
-        if xlim:
-            plt.xlim(*xlim)
-        else:
-            plt.xlim(0, self.t_list.max())
-
-        # Reproduction numbers
-        plt.subplot(133)
-        plt.plot(self.t_list, [self.suppression_policy(t) for t in self.t_list], c='steelblue')
-        plt.ylabel('Contact Rate Reduction')
-        plt.xlabel('Time [days]', fontsize=12)
-        plt.grid(True, which='both')
         return fig
+
+
+
