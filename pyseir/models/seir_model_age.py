@@ -319,8 +319,8 @@ class SEIRModelAge:
             Basic reproduction number.
         """
 
-        # percentage of susceptible in each age group at disease-free equilibrium
-        P = self.age_steps / self.age_steps.sum()
+        # percentage of susceptible in each age group (assuming that initial condition is disease-free equilibrium)
+        P = self.N / self.N.sum()
         age_group_num = self.N.shape[0]
         # contact with susceptible at disease-free equilibrium
         # [C_11 * P_1, C_12 * P_1, ... C_1n * P_n]
